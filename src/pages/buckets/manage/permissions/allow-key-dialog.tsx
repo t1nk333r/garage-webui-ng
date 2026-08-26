@@ -2,9 +2,9 @@ import Button from "@/components/ui/button";
 import { useKeys } from "@/pages/keys/hooks";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Plus } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { Checkbox, Modal, Table } from "react-daisyui";
-import { useFieldArray, useForm } from "react-hook-form";
+import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { AllowKeysSchema, allowKeysSchema } from "../schema";
 import { useDisclosure } from "@/hooks/useDisclosure";
 import { CheckboxField } from "@/components/ui/checkbox";
@@ -43,20 +43,28 @@ const AllowKeyDialog = ({ currentKeys }: Props) => {
     onError: handleError,
   });
 
+  const candidateKeys = useMemo(
+    () => keys?.filter((key) => !currentKeys?.includes(key.id)) ?? [],
+    [keys, currentKeys]
+  );
+  const candidateIds = candidateKeys.map((k) => k.id).join(",");
+
   useEffect(() => {
-    const _keys = keys
-      ?.filter((key) => !currentKeys?.includes(key.id))
-      ?.map((key) => ({
+    form.setValue(
+      "keys",
+      candidateKeys.map((key) => ({
         checked: false,
         keyId: key.id,
         name: key.name,
         read: false,
         write: false,
         owner: false,
-      }));
-
-    form.setValue("keys", _keys || []);
-  }, [keys, currentKeys]);
+      }))
+    );
+    // Reseed only when the set of candidate keys changes, not on every
+    // parent render — otherwise an in-flight selection is silently wiped.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candidateIds]);
 
   const onToggleAll = (
     e: React.ChangeEvent<HTMLInputElement>,
@@ -70,6 +78,19 @@ const AllowKeyDialog = ({ currentKeys }: Props) => {
     form.setValue("keys", newValues);
   };
 
+  // `form.watch()` only takes a read-only snapshot at render time and does
+  // not itself trigger a re-render of this component when a nested field
+  // changes via a Controller elsewhere (see react-hook-form's `useWatch`
+  // vs `watch` distinction); `useWatch` is required to react to ticks.
+  const watchedKeys = useWatch({ control: form.control, name: "keys" });
+  useEffect(() => {
+    watchedKeys?.forEach((row, i) => {
+      if (!row.checked && (row.read || row.write || row.owner)) {
+        form.setValue(`keys.${i}.checked`, true);
+      }
+    });
+  }, [watchedKeys, form]);
+
   const onSubmit = form.handleSubmit((values) => {
     const data = values.keys
       .filter((key) => key.checked)
@@ -77,6 +98,21 @@ const AllowKeyDialog = ({ currentKeys }: Props) => {
         keyId: key.keyId,
         permissions: { read: key.read, write: key.write, owner: key.owner },
       }));
+
+    if (data.length === 0) {
+      toast.error("Select at least one key to allow.");
+      return;
+    }
+
+    if (
+      data.some(
+        (k) => !k.permissions.read && !k.permissions.write && !k.permissions.owner
+      )
+    ) {
+      toast.error("Each selected key needs at least one permission.");
+      return;
+    }
+
     allowKey.mutate(data);
   });
 
