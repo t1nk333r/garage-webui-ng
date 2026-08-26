@@ -7,7 +7,7 @@
 >
 > **Drift check (run first)**:
 > ```
-> git diff --stat 947879d..HEAD -- backend/router/browse.go backend/router/browse_test.go
+> git diff --stat 6a36683..HEAD -- backend/router/browse.go backend/router/browse_test.go
 > ls backend/router/browse_test.go
 > ```
 > Then confirm the "Current state" excerpts match. On a mismatch, STOP.
@@ -22,7 +22,7 @@
 - **Risk**: LOW
 - **Depends on**: **plan 055** (the S3 handler fixture) — hard gate
 - **Category**: bug
-- **Planned at**: commit `947879d`, 2026-08-13
+- **Planned at**: commit `947879d`, 2026-08-13 — **refreshed `6a36683`, 2026-08-26** (reconcile: plan 055 merged `6f0cea8`, gate satisfied; line numbers below re-measured, code unchanged)
 
 ## Why this matters
 
@@ -53,14 +53,14 @@ above, never got the same treatment.
 
 ## Current state
 
-### `backend/router/browse.go:163-164` — the unguarded dereference
+### `backend/router/browse.go:144-145` — the unguarded dereference
 
 ```go
 	w.Header().Set("Cache-Control", "max-age=86400")
 	w.Header().Set("Last-Modified", object.LastModified.Format(time.RFC1123))
 ```
 
-### `backend/router/browse.go:195-200` — the guarded fields, for contrast
+### `backend/router/browse.go:176-181` — the guarded fields, for contrast
 
 ```go
 	if object.ContentLength != nil {
@@ -74,7 +74,7 @@ above, never got the same treatment.
 Match this shape exactly — it is the convention already established in this
 function for optional S3 response fields.
 
-### `backend/router/browse.go:203-208` — the error after streaming
+### `backend/router/browse.go:184-188` — the error after streaming
 
 ```go
 	_, err = io.Copy(w, object.Body)
@@ -265,8 +265,8 @@ cd backend && gofmt -l . && go vet ./... && go build ./... && go test -race ./..
 - [ ] Step 5's two mutations each failed the named test, and were reverted
 - [ ] `grep -n "object.LastModified" backend/router/browse.go` → the only dereference is inside a `!= nil` guard
 - [ ] No `utils.ResponseError` appears between the `io.Copy(w, object.Body)` call and the end of `GetOneObject`
-- [ ] `git diff 947879d..HEAD -- backend/utils/utils.go src/ backend/middleware/` is **empty**
-- [ ] `git diff --stat 947879d..HEAD` lists only `browse.go` and `browse_test.go`
+- [ ] `git diff 6a36683..HEAD -- backend/utils/utils.go src/ backend/middleware/` is **empty**
+- [ ] `git diff --stat 6a36683..HEAD` lists only `browse.go` and `browse_test.go`
 
 ## STOP conditions
 

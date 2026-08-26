@@ -7,7 +7,7 @@
 >
 > **Drift check (run first)**:
 > ```
-> git diff --stat 947879d..HEAD -- CLAUDE.md README.md docs/ .env.example
+> git diff --stat 6a36683..HEAD -- CLAUDE.md README.md docs/ .env.example
 > ```
 > On a mismatch with the "Current state" excerpts, STOP.
 
@@ -18,7 +18,7 @@
 - **Risk**: LOW — documentation only
 - **Depends on**: none
 - **Category**: docs
-- **Planned at**: commit `947879d`, 2026-08-13
+- **Planned at**: commit `947879d`, 2026-08-13 — **refreshed `6a36683`, 2026-08-26** (reconcile: CI moved from GitHub Actions to Jenkins in `fabb2db`; defect 3 and Step 3 rewritten; defects 1–2 re-verified still present)
 
 ## Why this matters
 
@@ -31,17 +31,19 @@ kind — a reader who trusts them makes a worse decision than one who had nothin
    read-only role's blast radius gets an incomplete answer from the security doc.
 
 2. **`CLAUDE.md` is six minor releases stale.** It announces the current release
-   as 3.1.0 with plans 001–033, when the tag is v3.7.0 and there are 51 plans.
+   as 3.1.0 with plans 001–033, when `package.json` is 3.8.0 and there are 57 plans.
    This is the file every dispatched agent reads first, so a wrong claim here
    propagates into work: an executor told a shipped plan is "in review" may redo
    or conflict with merged work.
 
-3. **`CLAUDE.md` undercounts the Go pin sites.** It names four places where the
-   exact Go patch must stay in lockstep; there are five — `release.yml` pins
-   twice, and the second one is the release-signing job. All five agree today, so
-   there is no drift to fix; the risk is that the doc is the checklist someone
-   follows when renewing the pin, and following it exactly leaves one site behind
-   on the release path.
+3. **`CLAUDE.md` describes a CI setup that no longer exists.** It says the pin
+   is `1.25.12` in four places including `.github/workflows/ci.yml` ×2, and that
+   "CI is `.github/workflows/ci.yml`". Since `fabb2db` (2026-08-19) CI runs on
+   Jenkins from the root `Jenkinsfile`; `ci.yml` is deleted; the pin is `1.25.13`
+   in **three** in-repo sites (`Dockerfile`, `release.yml` ×2) plus the Jenkins
+   agent image, which lives outside this repo. `README.md` still carries a CI
+   badge pointing at the deleted workflow. The doc is the checklist someone
+   follows when renewing the pin, so it must list the real sites.
 
 ## Current state
 
@@ -76,8 +78,8 @@ Plan 033 (header account redesign) written, unexecuted. Plan 031
 validation). Plan 029 (offline admin-recovery CLI, …) shipped.
 ```
 
-Reality: `package.json` reads `3.7.0`, `git describe --tags` returns `v3.7.0`,
-and plans 031, 033 and everything through 051 have shipped.
+Reality: `package.json` reads `3.8.0`, and plans 031, 033 and everything through
+055 have merged to `main` (056 and 057 are the only open plans).
 
 The same file also describes the backlog as "`001-*.md` through `033-*.md`".
 
@@ -90,13 +92,23 @@ CI and the Docker builder pin an **exact** patch, currently `1.25.12` /
 `Dockerfile`.
 ```
 
-Measured — five sites, all currently `1.25.12`:
+Measured at `6a36683` — `ci.yml` no longer exists; three in-repo sites, all
+`1.25.13`:
 
 ```
-.github/workflows/ci.yml       (×2)
-.github/workflows/release.yml  (×2)   ← the doc names only one
-Dockerfile                     (×1)
+.github/workflows/release.yml  (×2, lines 56 and 86 — the doc names only one)
+Dockerfile                     (×1, line 35: golang:1.25.13-alpine)
 ```
+
+Plus one out-of-repo site: the Jenkins agent image (`Dockerfile.agent`, kept
+with the Jenkins setup, not in this repo) bakes Go 1.25.13 — `Jenkinsfile:3`
+documents this. `govulncheck` in the `Jenkinsfile` runs under that toolchain,
+so it must match the `Dockerfile` pin or advisories are reported against the
+wrong stdlib.
+
+`CLAUDE.md:35` also says "CI is `.github/workflows/ci.yml`" — the file is gone;
+CI is the root `Jenkinsfile`. `README.md:9` links a CI badge to
+`actions/workflows/ci.yml`, which now 404s.
 
 ### Also missing, and worth fixing in the same pass
 
@@ -114,7 +126,7 @@ Dockerfile                     (×1)
 | Purpose | Command | Expected |
 |---|---|---|
 | Version truth | `git describe --tags --abbrev=0` and `node -p "require('./package.json').version"` | agree |
-| Pin sites | `grep -rn 'go-version: "1.25' .github/workflows/ ; grep -n 'golang:1.25' Dockerfile` | five lines total |
+| Pin sites | `grep -rn 'go-version: "1.25' .github/workflows/ ; grep -n 'golang:1.25' Dockerfile ; grep -n 'Go 1.25' Jenkinsfile` | four lines total, all `1.25.13` |
 | Frontend gates | `pnpm run typecheck && pnpm run build` | exit 0 (proves nothing was broken) |
 
 `pnpm` is at `/home/t1nk33r/.local/share/mise/installs/node/26.3.1/bin/pnpm`.
@@ -135,8 +147,8 @@ Dockerfile                     (×1)
   historical record; do not retro-edit them.
 - The architecture sections of `CLAUDE.md` beyond what Step 2 names. They were
   verified as still accurate; rewriting them risks introducing a new wrong claim.
-- `.github/workflows/*` and `Dockerfile` — the pins **agree**; only the doc's
-  count is wrong. Changing a workflow here is out of scope.
+- `.github/workflows/*`, `Jenkinsfile` and `Dockerfile` — the pins **agree**;
+  only the docs are wrong. Changing CI config here is out of scope.
 
 ## Git workflow
 
@@ -192,22 +204,40 @@ grep -n "3.1.0\|001-\*.md through 033" CLAUDE.md
 ```
 → **no matches**.
 
-### Step 3: Correct the Go pin count
+### Step 3: Correct the CI and Go-pin description
 
-In `CLAUDE.md`, change "four places" to "five", and enumerate
-`.github/workflows/release.yml` **×2** — noting that the second is the
-checksum/signing job, which also runs `go`.
-
-Confirm the five sites agree before writing the number:
+Confirm the in-repo sites agree before writing anything:
 
 ```
-grep -rn 'go-version: "1.25' .github/workflows/ ; grep -n 'golang:1.25' Dockerfile
+grep -rn 'go-version: "1.25' .github/workflows/ ; grep -n 'golang:1.25' Dockerfile ; grep -n 'Go 1.25' Jenkinsfile
 ```
 
-If they do **not** all agree, that is a real drift — STOP and report it rather
-than documenting a number that is already wrong.
+Expected: `release.yml` ×2 and `Dockerfile` ×1 all read `1.25.13`, and the
+`Jenkinsfile` comment names `1.25.13`. If they do **not** agree, STOP (see STOP
+conditions).
 
-**Verify**: `grep -n "five places" CLAUDE.md` → one match.
+Then in `CLAUDE.md`:
+
+1. Rewrite the pin sentence (currently lines 14–18) to: the pin is `1.25.13` /
+   `golang:1.25.13-alpine`, in **three places in this repo** — `Dockerfile` and
+   `.github/workflows/release.yml` **×2** (the second is the checksum/signing
+   job, which also runs `go`) — **plus the Jenkins agent image** (out of repo;
+   the `Jenkinsfile` header comment records its version). Keep the existing
+   rationale sentence about the floating minor and blocking `govulncheck`.
+2. Replace "CI is `.github/workflows/ci.yml`" (line 35) with: CI is the root
+   `Jenkinsfile` (lint non-blocking, typecheck/test/build, Go build/vet/gofmt/
+   test, blocking `govulncheck`, advisory `pnpm audit`; on `main` it also builds
+   and pushes the multi-arch image to GHCR). `.github/workflows/release.yml`
+   (signed binaries on `v*` tags) is the only GitHub Actions workflow left.
+
+In `README.md`, remove the CI badge on line 9 (there is no public Jenkins URL to
+point it at) — do not replace it with a Jenkins badge.
+
+**Verify**:
+- `grep -n "four places\|ci.yml" CLAUDE.md` → no matches
+- `grep -n "three places" CLAUDE.md` → one match
+- `grep -n "Jenkinsfile" CLAUDE.md` → at least one match
+- `grep -n "workflows/ci.yml" README.md` → no matches
 
 ### Step 4: Fill the two README gaps
 
@@ -231,7 +261,7 @@ grep -n "API_ADMIN_KEY" README.md .env.example
 
 ```
 pnpm run typecheck && pnpm run build
-git diff --stat 947879d..HEAD
+git diff --stat 6a36683..HEAD
 ```
 
 Typecheck and build must still pass (proving no code was touched), and the diff
@@ -240,17 +270,19 @@ must list only the four in-scope files.
 ## Done criteria
 
 - [ ] `grep -n "3.1.0" CLAUDE.md` → no matches
-- [ ] `grep -n "four places" CLAUDE.md` → no matches; "five places" present
+- [ ] `grep -n "four places\|ci.yml" CLAUDE.md` → no matches; "three places" and "Jenkinsfile" present
+- [ ] `grep -n "workflows/ci.yml" README.md` → no matches
 - [ ] `grep -n "download-token" docs/authentication.md README.md` → matches in both
 - [ ] `grep -n "API_ADMIN_KEY" README.md .env.example` → matches in both
 - [ ] `grep -rniE "[0-9a-f]{32,}" .env.example` → no matches (no value was pasted)
-- [ ] `git diff --stat 947879d..HEAD` lists **only** `CLAUDE.md`, `README.md`, `docs/authentication.md`, `.env.example`
+- [ ] `git diff --stat 6a36683..HEAD` lists **only** `CLAUDE.md`, `README.md`, `docs/authentication.md`, `.env.example`
 - [ ] `pnpm run typecheck && pnpm run build` exit 0
 
 ## STOP conditions
 
-- The five Go pin sites do **not** all read the same patch version — that is code
-  drift, not a doc defect; report it and stop.
+- The three in-repo Go pin sites (`Dockerfile`, `release.yml` ×2) do **not** all
+  read the same patch version, or the `Jenkinsfile` header names a different
+  one — that is code drift, not a doc defect; report it and stop.
 - The code and a doc disagree about something **other** than the three defects
   named here, and you cannot tell which is right. Report it rather than guessing;
   a confidently wrong doc is exactly what this plan exists to remove.
@@ -268,9 +300,10 @@ must list only the four in-scope files.
 - **`plans/README.md` is the maintained backlog record**; `CLAUDE.md` should
   point at it rather than summarise it.
 - **The pin lockstep is doc-enforced, which is why the count matters.** A
-  worthwhile follow-up (deliberately not in this plan) is a CI step that greps all
-  five sites plus the `go` directive in `backend/go.mod` and fails on
-  disagreement — that would make the doc's count non-load-bearing.
+  worthwhile follow-up (deliberately not in this plan) is a `Jenkinsfile` stage
+  that greps the in-repo sites plus the `go` directive in `backend/go.mod`, and
+  compares against `go version` on the agent, failing on disagreement — that
+  would make the doc's count non-load-bearing and catch agent-image drift.
 - The viewer write surface is enumerated in three places now: the middleware
   code, its comment, and `docs/authentication.md`. If a fourth permitted write is
   ever added, all three need updating — the code comment says "exact match only,
