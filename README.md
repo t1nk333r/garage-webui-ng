@@ -6,9 +6,7 @@
 
 **A modern, production-ready admin dashboard for [Garage](https://garagehq.deuxfleurs.fr/) â€” the self-hosted, S3-compatible, distributed object storage service.**
 
-[![CI](https://github.com/d7eeem/garage-webui-ng/actions/workflows/ci.yml/badge.svg)](https://github.com/d7eeem/garage-webui-ng/actions/workflows/ci.yml)
-[![Docker Publish](https://github.com/d7eeem/garage-webui-ng/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/d7eeem/garage-webui-ng/actions/workflows/docker-publish.yml)
-[![GHCR](https://img.shields.io/badge/ghcr.io-garage--webui--ng-2496ED?logo=docker&logoColor=white)](https://github.com/d7eeem/garage-webui-ng/pkgs/container/garage-webui-ng)
+[![GHCR](https://img.shields.io/badge/ghcr.io-garage--webui--ng-2496ED?logo=docker&logoColor=white)](https://github.com/t1nk333r/garage-webui-ng/pkgs/container/garage-webui-ng)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](backend/go.mod)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](package.json)
@@ -112,7 +110,7 @@ docker run -d --name garage-webui-ng \
   -e API_BASE_URL=http://garage:3903 \
   -e S3_ENDPOINT_URL=http://garage:3900 \
   --restart unless-stopped \
-  ghcr.io/d7eeem/garage-webui-ng:latest
+  ghcr.io/t1nk333r/garage-webui-ng:latest
 ```
 
 Then open **http://localhost:3909** and complete the setup wizard to create the first administrator.
@@ -121,7 +119,7 @@ Then open **http://localhost:3909** and complete the setup wizard to create the 
 
 ### Prebuilt binary
 
-Download the `linux/amd64` or `linux/arm64` binary from the [latest release](https://github.com/d7eeem/garage-webui-ng/releases) and run it next to your Garage node:
+Download the `linux/amd64` or `linux/arm64` binary from the [latest release](https://github.com/t1nk333r/garage-webui-ng/releases) and run it next to your Garage node:
 
 ```bash
 chmod +x garage-webui-ng-linux-amd64
@@ -183,7 +181,7 @@ Both must pass. Step 1 alone only proves the binary matches the checksum file â€
 The image is multi-arch (`linux/amd64`, `linux/arm64`), runs as a **non-root** user (uid/gid `65532`), exposes a **healthcheck**, and shuts down gracefully on `SIGTERM`.
 
 ```bash
-docker pull ghcr.io/d7eeem/garage-webui-ng:latest
+docker pull ghcr.io/t1nk333r/garage-webui-ng:latest
 ```
 
 Available tags: `latest`, `2`, `2.0`, `2.0.0`, and `sha-<commit>`.

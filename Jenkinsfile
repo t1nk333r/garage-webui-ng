@@ -74,7 +74,7 @@ pipeline {
     stage('Build & push multi-arch image') {
       when { branch 'main' }
       environment {
-        IMAGE = 'ghcr.io/d7eeem/garage-webui-ng'
+        IMAGE = 'ghcr.io/t1nk333r/garage-webui-ng'
       }
       steps {
         withCredentials([usernamePassword(credentialsId: 'ghcr-pat',

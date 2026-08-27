@@ -25,7 +25,7 @@ services:
         max-file: "3"
 
   webui:
-    image: ghcr.io/d7eeem/garage-webui-ng:${WEBUI_TAG:-latest}
+    image: ghcr.io/t1nk333r/garage-webui-ng:${WEBUI_TAG:-latest}
     container_name: garage-webui-ng
     restart: unless-stopped
     depends_on:

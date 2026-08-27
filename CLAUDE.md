@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Garage WebUI-NG** — admin web UI for [Garage](https://garagehq.deuxfleurs.fr/) (self-hosted, S3-compatible distributed object storage). A **Go backend + React/TypeScript frontend**, shipped as a single binary (the Go binary embeds the built frontend via `//go:embed`) or a Docker image. The backend is a gateway to a running Garage cluster **plus** a small local SQLite store for its own users and authentication (`backend/store/`, at `DB_PATH`). Nothing else is persisted locally: every bucket, key and object shown comes live from Garage.
 
-- **Go module path:** `github.com/d7eeem/garage-webui-ng` (imports look like `github.com/d7eeem/garage-webui-ng/utils`). npm package: `garage-webui-ng`. Docker image: `ghcr.io/d7eeem/garage-webui-ng`.
+- **Go module path:** `github.com/d7eeem/garage-webui-ng` (imports look like `github.com/d7eeem/garage-webui-ng/utils`). npm package: `garage-webui-ng`. Docker image: `ghcr.io/t1nk333r/garage-webui-ng`.
 - A next-generation fork of [garage-webui](https://github.com/khairul169/garage-webui) (© 2024 Khairul Hidayat, MIT). Keep the upstream attribution intact.
 
 ## Commands

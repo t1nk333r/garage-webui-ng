@@ -76,8 +76,8 @@ FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 # OCI image metadata (dynamic values are also injected by the CI build).
 LABEL org.opencontainers.image.title="Garage WebUI-NG" \
       org.opencontainers.image.description="Modern admin dashboard for Garage S3-compatible object storage." \
-      org.opencontainers.image.source="https://github.com/d7eeem/garage-webui-ng" \
-      org.opencontainers.image.documentation="https://github.com/d7eeem/garage-webui-ng#readme" \
+      org.opencontainers.image.source="https://github.com/t1nk333r/garage-webui-ng" \
+      org.opencontainers.image.documentation="https://github.com/t1nk333r/garage-webui-ng#readme" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.vendor="garage-webui-ng"
 
