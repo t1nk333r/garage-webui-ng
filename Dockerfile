@@ -34,7 +34,7 @@ RUN pnpm run build
 # the crypto/tls, crypto/x509, net, net/textproto and net/http/httputil
 # advisories that govulncheck (blocking, in the Jenkinsfile) flags on older
 # 1.25 patches. Bumping this is a deliberate chore: keep it in lockstep with
-# the `go-version` pins in the Jenkinsfile and .github/workflows/release.yml (x2).
+# the Go version baked into the Jenkins agent image (see the `Jenkinsfile` header).
 FROM --platform=$BUILDPLATFORM golang:1.25.13-alpine AS backend
 WORKDIR /app
 
