@@ -3,7 +3,9 @@
 // Toolchain versions (Node 20, Go 1.25.13) are baked into the agent image;
 // pnpm resolves from package.json's "packageManager" via corepack.
 // Publish runs only on main: multi-arch (amd64+arm64) buildx push to GHCR
-// using the `github-pat` credential; binfmt is installed on the host on demand.
+// using the `github-pat` credential. The Dockerfile's build stages
+// cross-compile and never run under emulation; binfmt is installed only for
+// the tiny per-platform runtime stage, on demand.
 pipeline {
   agent { label 'docker' }
 

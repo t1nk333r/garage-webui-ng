@@ -3,7 +3,10 @@
 # ──────────────────────────────────────────────────────────────────────────
 # Stage 1 — build the frontend (Vite → dist/)
 # ──────────────────────────────────────────────────────────────────────────
-FROM node:20-slim AS frontend
+# Runs on the build host's own architecture: Vite output is arch-independent,
+# so building it once (natively) instead of once per target under QEMU cuts
+# the arm64 half of the multi-arch build from minutes to seconds.
+FROM --platform=$BUILDPLATFORM node:20-slim AS frontend
 WORKDIR /app
 ENV PNPM_HOME=/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
@@ -29,15 +32,20 @@ RUN pnpm run build
 # to whatever 1.25.x the registry serves that day, which is how a stdlib patch
 # with open advisories ends up in a release image. 1.25.13 carries the fixes for
 # the crypto/tls, crypto/x509, net, net/textproto and net/http/httputil
-# advisories that govulncheck (blocking, in ci.yml) flags on older 1.25 patches.
-# Bumping this is a deliberate chore: keep it in lockstep with the `go-version`
-# pins in .github/workflows/ci.yml (x2) and .github/workflows/release.yml.
-FROM golang:1.25.13-alpine AS backend
+# advisories that govulncheck (blocking, in the Jenkinsfile) flags on older
+# 1.25 patches. Bumping this is a deliberate chore: keep it in lockstep with
+# the `go-version` pins in the Jenkinsfile and .github/workflows/release.yml (x2).
+FROM --platform=$BUILDPLATFORM golang:1.25.13-alpine AS backend
 WORKDIR /app
 
 # The release version, injected into the binary below. Passed by CI as the git
 # tag (e.g. v3.3.0); defaults to "dev" for a plain local `docker build`.
 ARG VERSION=dev
+
+# Target architecture for the Go cross-compile below (amd64 / arm64), set by
+# buildx per --platform. Building natively and cross-compiling is what lets the
+# multi-arch image avoid QEMU emulation of the whole toolchain.
+ARG TARGETARCH
 
 # Download modules first (cached until go.mod/go.sum change).
 COPY backend/go.mod backend/go.sum ./
@@ -46,12 +54,14 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY backend/ ./
 COPY --from=frontend /app/dist ./ui/dist
 
-# Static, stripped, reproducible binary. CGO off → runs on distroless/scratch.
-# The SQLite driver is modernc.org/sqlite (pure Go) precisely so this stays
-# possible; a cgo-based driver would not link here.
+# Static, stripped, reproducible binary. CGO off → runs on distroless/scratch,
+# and lets this stage cross-compile for TARGETARCH natively (no QEMU) even
+# though it always runs on the build host's own architecture. The SQLite
+# driver is modernc.org/sqlite (pure Go) precisely so this stays possible; a
+# cgo-based driver would not link here.
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux \
+    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
     go build -tags=prod -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /main .
 
 # Staging directory for the runtime volume mount point. It exists only to be
