@@ -205,3 +205,39 @@ curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $TOKEN" \
 curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $TOKEN" \
   http://127.0.0.1:3903/v2/CreateBucket        # 400 — requires POST
 ```
+
+---
+
+## Addendum 2026-08-27 — reference model from `Noooste/garage-ui`
+
+Deferred by the maintainer ("I don't need OIDC right now"), recorded so a
+future revisit starts from a working design rather than a blank page.
+`Noooste/garage-ui` (`docs/access-control.md`) scopes users like this:
+
+```yaml
+access_control:
+  team_attribute_path: groups            # JMESPath over the OIDC claims
+  presets:
+    bucket_readonly: [bucket.list, bucket.read, object.list, object.read]
+    bucket_owner: ["preset:bucket_readonly", bucket.create, bucket.update,
+                   bucket.delete, object.write, object.delete]
+  teams:
+    - name: backend
+      claim_values: ["garage-team-backend"]   # exact match, no globbing
+      bindings:
+        - bucket_prefixes: ["backend-"]        # plain prefixes; "*" = all
+          permissions: ["preset:bucket_owner"]
+        - bucket_prefixes: ["shared-"]
+          permissions: ["preset:bucket_readonly"]
+```
+
+Properties worth keeping if this project ever builds it: **default deny** (an
+OIDC user matching no team gets 403 on every API route); **admins go through
+the same authorizer** — no `IsAdmin` short-circuit; cluster-layout permissions
+are never grantable to a team; the whole policy is **validated at startup**
+(unknown permission, cyclic preset, duplicate team ⇒ refuse to start); policy
+lives only in the config file. Their trade-off, which does not fit this
+project as-is: scoped users exist *only* via OIDC — password users are always
+full admin — the inverse of our DB-backed user management (017/025). A hybrid
+would keep our users and add OIDC as a login method mapped to existing roles
+first, prefix bindings second.
