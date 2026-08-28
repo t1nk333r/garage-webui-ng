@@ -16,7 +16,7 @@ package main
 // verifies downloads against the key compiled into it, so builds carrying the
 // previous key will refuse a release signed with this one. That refusal is
 // correct — see the rotation note in README.md.
-var releasePublicKey = "5f1bc748088ce26f8b75bcf4a9b28724397a0a1006963b8c5733b452ce948f31"
+var releasePublicKey = "583b78627fef1679b5844a39aefa9556cf61903f1b45949f54e8b7ff89f7f513"
 
 // ReleasePublicKey returns the configured release-signing public key, or "" if
 // this build has none.
