@@ -72,12 +72,12 @@ func usage(w io.Writer) {
 // private key hex on stdout, and everything a human needs — the labelled
 // public key plus a reminder about stdout — on stderr.
 //
-// stdout carries ONLY the payload because the documented setup step pipes
-// it straight into `gh secret set RELEASE_SIGNING_KEY`: any label text
-// lands inside the secret and corrupts it. That is exactly what broke the
-// v3.7.0 release (the decoder choked on the 'P' of a "PRIVATE KEY" label
-// that had been piped into the secret). stdout is for the machine, stderr
-// is for the human.
+// stdout carries ONLY the payload because the documented setup step feeds
+// it straight into the release-signing secret store: any label text lands
+// inside the secret and corrupts it. That is exactly what broke the v3.7.0
+// release (the decoder choked on the 'P' of a "PRIVATE KEY" label that had
+// been piped into the secret). stdout is for the machine, stderr is for the
+// human.
 func runKeygen(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("keygen", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -95,7 +95,7 @@ func runKeygen(args []string, stdout, stderr io.Writer) error {
 
 	fmt.Fprintln(stdout, hex.EncodeToString(priv))
 	fmt.Fprintln(stderr, "PUBLIC KEY (hex, safe to share — paste into backend/release_key.go):", hex.EncodeToString(pub))
-	fmt.Fprintln(stderr, "NOTE: stdout carried only the private key (hex, secret, never commit) — pipe it directly into the RELEASE_SIGNING_KEY secret store, e.g. `relsign keygen 2>pub.txt | gh secret set RELEASE_SIGNING_KEY`.")
+	fmt.Fprintln(stderr, "NOTE: stdout carried only the private key (hex, secret, never commit) — store it verbatim, with no label or trailing text, as the Jenkins secret-text credential `relsign-key`.")
 	return nil
 }
 
