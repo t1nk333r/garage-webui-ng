@@ -48,7 +48,11 @@ func (g *garage) LoadConfig() error {
 }
 
 func (g *garage) GetAdminEndpoint() string {
-	endpoint := os.Getenv("API_BASE_URL")
+	// TrimRight: callers concatenate a leading-slash path onto this
+	// (Fetch does fmt.Sprintf("%s%s", ...)), so an operator's trailing
+	// slash would silently produce "//v2/ListBuckets" and break every
+	// admin call. Upstream khairul169/garage-webui#54.
+	endpoint := strings.TrimRight(os.Getenv("API_BASE_URL"), "/")
 	if len(endpoint) > 0 {
 		return endpoint
 	}
@@ -65,7 +69,8 @@ func (g *garage) GetAdminEndpoint() string {
 }
 
 func (g *garage) GetS3Endpoint() string {
-	endpoint := os.Getenv("S3_ENDPOINT_URL")
+	// TrimRight for the same reason as GetAdminEndpoint.
+	endpoint := strings.TrimRight(os.Getenv("S3_ENDPOINT_URL"), "/")
 	if len(endpoint) > 0 {
 		return endpoint
 	}
@@ -84,7 +89,7 @@ func (g *garage) GetS3Endpoint() string {
 // GetS3PublicEndpoint returns the endpoint used to SIGN share links — it must be
 // reachable by link recipients. Falls back to the internal S3 endpoint.
 func (g *garage) GetS3PublicEndpoint() string {
-	if ep := os.Getenv("S3_PUBLIC_ENDPOINT_URL"); ep != "" {
+	if ep := strings.TrimRight(os.Getenv("S3_PUBLIC_ENDPOINT_URL"), "/"); ep != "" {
 		return ep
 	}
 	return g.GetS3Endpoint()
@@ -94,7 +99,10 @@ func (g *garage) GetS3PublicEndpoint() string {
 // Presigned share links are only offered when it is (an internal-only endpoint
 // produces links unreachable to external recipients).
 func (g *garage) IsSharingEnabled() bool {
-	return os.Getenv("S3_PUBLIC_ENDPOINT_URL") != ""
+	// Trimmed the same way GetS3PublicEndpoint reads it, so the two cannot
+	// disagree: a value of "/" must not report sharing as configured while
+	// the endpoint silently falls back to the internal one.
+	return strings.TrimRight(os.Getenv("S3_PUBLIC_ENDPOINT_URL"), "/") != ""
 }
 
 // GetWebPublicURL returns the operator-declared public base URL for static
