@@ -148,3 +148,73 @@ func TestIsSharingEnabled(t *testing.T) {
 		t.Errorf("IsSharingEnabled() = false, want true when S3_PUBLIC_ENDPOINT_URL is set")
 	}
 }
+
+// Upstream khairul169/garage-webui#54: a trailing slash on an operator-supplied
+// endpoint used to survive into the concatenated request URL ("//v2/..."),
+// silently breaking every admin call.
+func TestEndpointsStripTrailingSlash(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{"no trailing slash", "https://garage.example.com", "https://garage.example.com"},
+		{"one trailing slash", "https://garage.example.com/", "https://garage.example.com"},
+		{"several trailing slashes", "https://garage.example.com///", "https://garage.example.com"},
+		{"with a path prefix", "https://example.com/garage/", "https://example.com/garage"},
+	}
+
+	for _, tc := range cases {
+		t.Run("admin/"+tc.name, func(t *testing.T) {
+			t.Setenv("API_BASE_URL", tc.value)
+			if got := Garage.GetAdminEndpoint(); got != tc.want {
+				t.Errorf("GetAdminEndpoint() = %q, want %q", got, tc.want)
+			}
+		})
+
+		t.Run("s3/"+tc.name, func(t *testing.T) {
+			t.Setenv("S3_ENDPOINT_URL", tc.value)
+			if got := Garage.GetS3Endpoint(); got != tc.want {
+				t.Errorf("GetS3Endpoint() = %q, want %q", got, tc.want)
+			}
+		})
+
+		t.Run("s3public/"+tc.name, func(t *testing.T) {
+			t.Setenv("S3_PUBLIC_ENDPOINT_URL", tc.value)
+			if got := Garage.GetS3PublicEndpoint(); got != tc.want {
+				t.Errorf("GetS3PublicEndpoint() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// The request URL is where the bug actually bit: Fetch concatenates the
+// endpoint with a leading-slash path, so this asserts the property end to end
+// rather than only the accessor.
+func TestFetchBuildsCleanURLWithTrailingSlashEndpoint(t *testing.T) {
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("API_BASE_URL", server.URL+"/")
+
+	if _, err := Garage.Fetch("/v2/ListBuckets", &FetchOptions{}); err != nil {
+		t.Fatalf("Fetch() error = %v, want nil", err)
+	}
+	if gotPath != "/v2/ListBuckets" {
+		t.Errorf("request path = %q, want %q", gotPath, "/v2/ListBuckets")
+	}
+}
+
+// IsSharingEnabled must agree with GetS3PublicEndpoint: a value that trims to
+// empty is not a configured endpoint.
+func TestIsSharingEnabledIgnoresSlashOnlyValue(t *testing.T) {
+	t.Setenv("S3_PUBLIC_ENDPOINT_URL", "/")
+	if Garage.IsSharingEnabled() {
+		t.Error("IsSharingEnabled() = true for a slash-only value, want false")
+	}
+}
