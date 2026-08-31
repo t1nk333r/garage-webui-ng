@@ -436,6 +436,8 @@ go build ./... && go vet ./... && go test -race ./...
 
 A **release build** (single binary with the embedded UI) is produced by copying `dist/` into `backend/ui/dist/` and running `make` (`-tags=prod`); the [`Dockerfile`](Dockerfile) does this automatically. See [CLAUDE.md](CLAUDE.md) for conventions and architecture notes.
 
+CI and releases run on a self-hosted Jenkins rather than GitHub Actions — the pipeline is the [`Jenkinsfile`](Jenkinsfile), and the surrounding setup, credentials and constraints are in [`docs/ci-jenkins.md`](docs/ci-jenkins.md).
+
 ## 📄 License
 
 Released under the [MIT License](LICENSE). Garage WebUI-NG is a next-generation fork; the original copyright is retained below.
