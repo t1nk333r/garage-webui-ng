@@ -142,7 +142,9 @@ func (b *Browse) GetOneObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Cache-Control", "max-age=86400")
-	w.Header().Set("Last-Modified", object.LastModified.Format(time.RFC1123))
+	if object.LastModified != nil {
+		w.Header().Set("Last-Modified", object.LastModified.Format(time.RFC1123))
+	}
 
 	stored := ""
 	if object.ContentType != nil {
@@ -181,10 +183,13 @@ func (b *Browse) GetOneObject(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Etag", *object.ETag)
 	}
 
-	_, err = io.Copy(w, object.Body)
-
-	if err != nil {
-		utils.ResponseError(w, err)
+	if _, err := io.Copy(w, object.Body); err != nil {
+		// The status, Content-Type and Content-Length are already committed —
+		// see the same reasoning in DownloadArchive. Writing an error here
+		// would append text to a partial object body and hand the user a
+		// silently corrupted file. A truncated response that disagrees with
+		// Content-Length is a detectable transport error; a corrupt file is not.
+		log.Printf("stream object %q from bucket %q: %v", key, bucket, err)
 		return
 	}
 }

@@ -857,6 +857,12 @@ type s3Fixture struct {
 	// forking the whole fixture. Each returns true if it fully handled the
 	// request (the default in-memory behavior below is then skipped).
 	onListObjectsV2 func(w http.ResponseWriter, r *http.Request) bool
+
+	// onGetObject lets a test replace GetObject's response entirely — e.g. to
+	// omit a header the default handler always sets, or to simulate a stream
+	// that fails partway through the body (plan 056's regression guards).
+	// key is the object key parsed from the request path.
+	onGetObject func(w http.ResponseWriter, r *http.Request, key string) bool
 }
 
 type fixtureObject struct {
@@ -1063,6 +1069,9 @@ func (f *s3Fixture) handle(w http.ResponseWriter, r *http.Request) {
 		f.defaultHeadObject(w, key)
 
 	case r.Method == http.MethodGet && key != "":
+		if f.onGetObject != nil && f.onGetObject(w, r, key) {
+			return
+		}
 		f.defaultGetObject(w, key)
 
 	case r.Method == http.MethodDelete && key != "" && q.Has("uploadId"):
@@ -1808,6 +1817,110 @@ func TestGetOneObject(t *testing.T) {
 
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("status = %d, want 404, body=%s", rec.Code, rec.Body.String())
+		}
+	})
+
+	// Regression guard for plan 056 defect 1: object.LastModified is a
+	// *time.Time and S3 can omit it. Before the fix, formatting it
+	// unconditionally panicked the handler.
+	t.Run("view=1 with no Last-Modified from S3 does not panic and omits the header", func(t *testing.T) {
+		f := newS3Fixture(t, "getone-nolastmod-bucket")
+		const body = "no-last-modified-bytes"
+		f.onGetObject = func(w http.ResponseWriter, r *http.Request, key string) bool {
+			w.Header().Set("Content-Type", "image/png")
+			w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+			// Deliberately no Last-Modified header — this is what a real S3
+			// response can omit.
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, body)
+			return true
+		}
+
+		req := newGetOneObjectRequest(f.bucket, "photo.png", url.Values{"view": {"1"}})
+		rec := httptest.NewRecorder()
+		(&Browse{}).GetOneObject(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+		}
+		if lm := rec.Header().Get("Last-Modified"); lm != "" {
+			t.Errorf("Last-Modified = %q, want empty when S3 sent none", lm)
+		}
+		if rec.Body.String() != body {
+			t.Errorf("body = %q, want %q", rec.Body.String(), body)
+		}
+	})
+
+	t.Run("view=1 with a Last-Modified from S3 sets it formatted as RFC1123", func(t *testing.T) {
+		f := newS3Fixture(t, "getone-lastmod-bucket")
+		f.PutTestObject("photo.png", "pngbytes", "image/png")
+
+		req := newGetOneObjectRequest(f.bucket, "photo.png", url.Values{"view": {"1"}})
+		rec := httptest.NewRecorder()
+		(&Browse{}).GetOneObject(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+		}
+		lm := rec.Header().Get("Last-Modified")
+		if lm == "" {
+			t.Fatal("Last-Modified header is empty, want it set")
+		}
+		if _, err := time.Parse(time.RFC1123, lm); err != nil {
+			t.Errorf("Last-Modified = %q is not a valid RFC1123 timestamp: %v", lm, err)
+		}
+	})
+
+	// Regression guard for plan 056 defect 2: once io.Copy has started
+	// streaming the body, a failure partway through must NOT be reported by
+	// writing utils.ResponseError — that appends error text to an
+	// already-committed 200 response with a Content-Length that no longer
+	// matches, corrupting the file. The fake writes fewer bytes than the
+	// Content-Length it declared and returns without closing the connection
+	// itself; net/http's server detects the short write and closes the
+	// connection on its own once the handler returns, which is what makes
+	// object.Body's Read fail on the client side — see the function comment
+	// on this hook and the "does not simulate a real connection reset" note
+	// in plan 056 for why this must go over a real fixture connection rather
+	// than httptest.ResponseRecorder.
+	t.Run("a stream that fails partway through does not append error text to the body", func(t *testing.T) {
+		f := newS3Fixture(t, "getone-midstream-bucket")
+		const full = "0123456789ABCDEF" // the length GetObject's response promises
+		const sent = "01234"            // what the fake actually writes before EOF
+		f.onGetObject = func(w http.ResponseWriter, r *http.Request, key string) bool {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Content-Length", strconv.Itoa(len(full)))
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, sent)
+			if fl, ok := w.(http.Flusher); ok {
+				fl.Flush()
+			}
+			// Returning here without writing the remaining bytes is enough:
+			// net/http's server notices the Content-Length mismatch and
+			// closes the underlying connection itself once the handler
+			// returns, which surfaces to the client (and so to this
+			// handler's io.Copy) as a genuine read error.
+			return true
+		}
+
+		req := newGetOneObjectRequest(f.bucket, "trunc.bin", url.Values{"view": {"1"}})
+		rec := httptest.NewRecorder()
+		(&Browse{}).GetOneObject(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("status = %d, want 200 (already committed before the stream failed)", rec.Code)
+		}
+		body := rec.Body.String()
+		if !strings.HasPrefix(full, body) {
+			t.Errorf("body = %q, want a prefix of %q (no trailing error text)", body, full)
+		}
+		if body == full {
+			t.Errorf("body = %q equals the full intended content %q, want the copy to have actually been cut short so this test proves something", body, full)
+		}
+		for _, bad := range []string{"EOF", "unexpected", "closed", "reset", "error", "connection"} {
+			if strings.Contains(body, bad) {
+				t.Errorf("body = %q, contains %q — looks like error text was appended instead of a clean truncation", body, bad)
+			}
 		}
 	})
 }
