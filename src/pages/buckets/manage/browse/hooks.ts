@@ -2,12 +2,14 @@ import api, { encodeObjectPath } from "@/lib/api";
 import {
   useInfiniteQuery,
   useMutation,
+  useQuery,
   UseMutationOptions,
 } from "@tanstack/react-query";
 import {
   BulkDeleteResult,
   GetObjectsResult,
   PutObjectPayload,
+  SearchObjectsResult,
   UseBrowserObjectOptions,
 } from "./types";
 
@@ -28,6 +30,17 @@ export const useBrowseObjects = (
     getNextPageParam: getNextObjectPageParam,
   });
 };
+
+export const useSearchObjects = (bucket: string, q: string, prefix: string) =>
+  useQuery({
+    queryKey: ["search", bucket, prefix, q],
+    queryFn: () =>
+      api.get<SearchObjectsResult>(`/search/${bucket}`, {
+        params: { q, prefix },
+      }),
+    enabled: q.trim().length >= 2,
+    staleTime: 30_000,
+  });
 
 export const usePutObject = (
   bucket: string,

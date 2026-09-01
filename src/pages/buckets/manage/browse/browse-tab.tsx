@@ -1,5 +1,6 @@
 import { useSearchParams } from "react-router-dom";
 import { Card } from "react-daisyui";
+import { Search, X } from "lucide-react";
 
 import ObjectList from "./object-list";
 import { useEffect, useState } from "react";
@@ -9,6 +10,12 @@ import { useBucketContext } from "../context";
 import ShareDialog from "./share-dialog";
 import BulkActions from "./bulk-actions";
 import MediaViewer from "./media-viewer";
+import SearchResults from "./search-results";
+import Input from "@/components/ui/input";
+import Button from "@/components/ui/button";
+import { useDebounce } from "@/hooks/useDebounce";
+
+const MIN_SEARCH_QUERY_LENGTH = 2;
 
 const getInitialPrefixes = (searchParams: URLSearchParams) => {
   const prefix = searchParams.get("prefix");
@@ -28,6 +35,20 @@ const BrowseTab = () => {
   const [curPrefix, setCurPrefix] = useState(prefixHistory.length - 1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const debouncedSetSearch = useDebounce(setDebouncedSearch, 300);
+
+  const onSearchChange = (value: string) => {
+    setSearch(value);
+    debouncedSetSearch(value);
+  };
+
+  const clearSearch = () => {
+    setSearch("");
+    setDebouncedSearch("");
+  };
+
   useEffect(() => {
     const prefix = prefixHistory[curPrefix] || "";
     const newParams = new URLSearchParams(searchParams);
@@ -38,6 +59,14 @@ const BrowseTab = () => {
   // Selection is scoped to the current prefix by design: navigating clears it.
   useEffect(() => {
     setSelected(new Set());
+  }, [curPrefix]);
+
+  // Navigating (breadcrumb, back/forward, or a search result's own click)
+  // clears the search — all of those go through setCurPrefix, either
+  // directly (ObjectListNavigator) or via gotoPrefix below.
+  useEffect(() => {
+    setSearch("");
+    setDebouncedSearch("");
   }, [curPrefix]);
 
   const gotoPrefix = (prefix: string) => {
@@ -58,6 +87,7 @@ const BrowseTab = () => {
   }
 
   const prefix = prefixHistory[curPrefix] || "";
+  const isSearching = debouncedSearch.trim().length >= MIN_SEARCH_QUERY_LENGTH;
 
   return (
     <div>
@@ -66,7 +96,33 @@ const BrowseTab = () => {
           curPrefix={curPrefix}
           setCurPrefix={setCurPrefix}
           prefixHistory={prefixHistory}
-          actions={<Actions prefix={prefix} />}
+          actions={
+            <>
+              <div className="flex items-center gap-1">
+                <Input
+                  aria-label="Search objects"
+                  placeholder="Search this folder and below…"
+                  value={search}
+                  onChange={(e) => onSearchChange(e.target.value)}
+                />
+                {search ? (
+                  <Button
+                    icon={X}
+                    color="ghost"
+                    aria-label="Clear search"
+                    onClick={clearSearch}
+                  />
+                ) : (
+                  <Search
+                    size={18}
+                    className="text-base-content/40 shrink-0"
+                    aria-hidden="true"
+                  />
+                )}
+              </div>
+              <Actions prefix={prefix} />
+            </>
+          }
         />
 
         {selected.size > 0 && (
@@ -77,12 +133,24 @@ const BrowseTab = () => {
           />
         )}
 
-        <ObjectList
-          prefix={prefix}
-          onPrefixChange={gotoPrefix}
-          selected={selected}
-          setSelected={setSelected}
-        />
+        {isSearching ? (
+          <SearchResults
+            bucket={bucketName}
+            prefix={prefix}
+            query={debouncedSearch}
+            onNavigate={(p) => {
+              clearSearch();
+              gotoPrefix(p);
+            }}
+          />
+        ) : (
+          <ObjectList
+            prefix={prefix}
+            onPrefixChange={gotoPrefix}
+            selected={selected}
+            setSelected={setSelected}
+          />
+        )}
 
         <ShareDialog />
         <MediaViewer />

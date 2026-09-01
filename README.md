@@ -345,6 +345,7 @@ The backend serves everything under `/api`. It is primarily a **gateway to Garag
 | `POST` | `/api/browse/{bucket}` | Bulk-delete selected objects. |
 | `GET/DELETE` | `/api/multipart/{bucket}` | List / abort orphaned multipart uploads. |
 | `GET` | `/api/share/{bucket}/{key...}?expires=` | Generate a presigned share link. |
+| `GET` | `/api/search/{bucket}?q=&prefix=` | Name search under a prefix; capped at 200 matches / 20,000 keys scanned, reports `truncated`. |
 | — | `/api/setup`, `/api/auth/*`, `/api/admin/users*` | Setup wizard, sessions, and user administration. |
 
 The authentication and user-administration endpoints — request fields, response

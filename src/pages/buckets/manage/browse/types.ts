@@ -17,6 +17,15 @@ export type Object = {
   url: string;
 };
 
+export type SearchObjectsResult = {
+  objects: Object[];
+  prefix: string;
+  query: string;
+  scanned: number;
+  truncated: boolean;
+  reason?: "matches" | "scan";
+};
+
 export type PutObjectPayload = {
   key: string;
   file: File | null;
