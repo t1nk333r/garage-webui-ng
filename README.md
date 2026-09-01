@@ -213,6 +213,7 @@ Garage WebUI-NG reads your `garage.toml` and lets every setting be overridden by
 |---|---|---|
 | `API_BASE_URL` | from `garage.toml` | Garage **Admin API** endpoint (cluster/bucket/key management). |
 | `API_ADMIN_KEY` | from `garage.toml` (`admin_token`) | Override for the Garage admin bearer token. Supply it as a secret (env file or secret store) — never inline in a compose file. |
+| `API_ADMIN_KEY_FILE` | *(unset)* | Path to a file holding the admin token; wins over `API_ADMIN_KEY`. Trailing newline stripped. Use with Compose `secrets:` / Kubernetes Secret volumes. |
 | `S3_ENDPOINT_URL` | from `garage.toml` | Garage **S3 API** endpoint (object browse/upload/download). |
 | `S3_PUBLIC_ENDPOINT_URL` | *(unset)* | Public S3 endpoint the browser can reach — enables **presigned share links**. |
 | `S3_WEB_PUBLIC_URL` | *(unset)* | Public base URL for **static website hosting**, overriding the `http://<bucket><root_domain>:<port>` address derived from `garage.toml`. **Must contain a `{bucket}` token** (`https://{bucket}.web.example.com`) — Garage's website endpoint resolves the bucket from the `Host` header only, so a template without the token cannot address any bucket and is treated as unset. Set this whenever a reverse proxy fronts Garage's web endpoint. |
@@ -228,7 +229,9 @@ Garage WebUI-NG reads your `garage.toml` and lets every setting be overridden by
 | `SESSION_IDLE_TIMEOUT_HOURS` | `2` | Sign out a session left untouched for this long. |
 | `TRUSTED_PROXY_HEADER` | *(unset)* | Name of a header (e.g. `X-Forwarded-For`) carrying the real client address, used to key the login/setup/password-change rate limiters. **Set this only when a reverse proxy you control sits in front of this service and overwrites the header on every request** — set it on a directly-exposed instance, or behind a proxy that passes the header through unmodified, and a client can choose its own rate-limit bucket, defeating the limiter. Uses the **last** comma-separated entry (the hop your proxy appended), never the first. |
 | `AUTH_USER_PASS` | *(unset)* | **Legacy.** `user:bcrypt-hash` (comma-separated). Imported **once**, on the first start against an empty database, then **ignored forever**. |
+| `AUTH_USER_PASS_FILE` | *(unset)* | Path to a file holding the value; wins over the plain variable. Trailing newline stripped. |
 | `AUTH_VIEWER_USER_PASS` | *(unset)* | **Legacy.** Read-only viewer accounts, same format and same one-time import. |
+| `AUTH_VIEWER_USER_PASS_FILE` | *(unset)* | Path to a file holding the value; wins over the plain variable. Trailing newline stripped. |
 | `UPDATE_CHECK_ENABLED` | `false` | Check GitHub for a newer release, shown in **Settings → About**. **Off by default** — this is the only outbound request this service makes to anything other than the configured Garage cluster. When `true`, the server calls the GitHub releases API at most once every 6 hours (cached, 5s timeout); a failed or disabled check degrades quietly, never an error. |
 
 > **Users are not configured with environment variables.** Create the first administrator with the setup wizard, then manage accounts in **Settings → Users**. The two `AUTH_*` variables exist only to carry accounts over from a pre-database release; changing them afterwards has no effect. Full details in [`docs/authentication.md`](docs/authentication.md).

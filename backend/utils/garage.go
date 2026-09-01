@@ -133,7 +133,7 @@ func (g *garage) GetS3Region() string {
 }
 
 func (g *garage) GetAdminKey() string {
-	key := os.Getenv("API_ADMIN_KEY")
+	key := GetSecretEnv("API_ADMIN_KEY")
 	if len(key) > 0 {
 		return key
 	}
