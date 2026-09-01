@@ -65,6 +65,11 @@ func HandleApiRouter() *http.ServeMux {
 
 	router.HandleFunc("GET /share/{bucket}/{key...}", browse.ShareObject)
 
+	// Own route rather than a segment under /browse/{bucket}/{key...} so it
+	// cannot shadow an object literally named "search" — see the comment on
+	// Browse.SearchObjects.
+	router.HandleFunc("GET /search/{bucket}", browse.SearchObjects)
+
 	metrics := &Metrics{}
 	router.HandleFunc("GET /metrics", metrics.Get)
 

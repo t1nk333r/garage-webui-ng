@@ -1720,6 +1720,245 @@ func TestGetObjects(t *testing.T) {
 	})
 }
 
+func newSearchObjectsRequest(bucket string, query url.Values) *http.Request {
+	target := "/search/" + bucket
+	if len(query) > 0 {
+		target += "?" + query.Encode()
+	}
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	req.SetPathValue("bucket", bucket)
+	return req
+}
+
+func TestSearchObjects(t *testing.T) {
+	t.Run("case-insensitive substring, recursive", func(t *testing.T) {
+		f := newS3Fixture(t, "search-basic-bucket")
+		f.PutTestObject("a/Report.pdf", "one", "application/pdf")
+		f.PutTestObject("a/b/report-2.pdf", "two", "application/pdf")
+		f.PutTestObject("c/notes.txt", "three", "text/plain")
+
+		req := newSearchObjectsRequest(f.bucket, url.Values{"q": {"report"}})
+		rec := httptest.NewRecorder()
+		(&Browse{}).SearchObjects(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+		}
+		var got schema.SearchObjectsResult
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("cannot decode response: %v", err)
+		}
+
+		gotKeys := map[string]bool{}
+		for _, o := range got.Objects {
+			if o.ObjectKey != nil {
+				gotKeys[*o.ObjectKey] = true
+			}
+		}
+		want := map[string]bool{"a/Report.pdf": true, "a/b/report-2.pdf": true}
+		if len(gotKeys) != len(want) || !gotKeys["a/Report.pdf"] || !gotKeys["a/b/report-2.pdf"] {
+			t.Errorf("Objects keys = %v, want exactly %v", gotKeys, want)
+		}
+		if got.Truncated {
+			t.Errorf("Truncated = true, want false")
+		}
+		if got.Scanned != 3 {
+			t.Errorf("Scanned = %d, want 3", got.Scanned)
+		}
+	})
+
+	t.Run("prefix scoping — no delimiter sent to S3", func(t *testing.T) {
+		f := newS3Fixture(t, "search-prefix-bucket")
+		f.PutTestObject("a/Report.pdf", "one", "application/pdf")
+		f.PutTestObject("a/b/report-2.pdf", "two", "application/pdf")
+		f.PutTestObject("c/notes.txt", "three", "text/plain")
+
+		req := newSearchObjectsRequest(f.bucket, url.Values{"q": {"report"}, "prefix": {"a/b/"}})
+		rec := httptest.NewRecorder()
+		(&Browse{}).SearchObjects(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+		}
+		var got schema.SearchObjectsResult
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("cannot decode response: %v", err)
+		}
+		if len(got.Objects) != 1 || got.Objects[0].ObjectKey == nil || *got.Objects[0].ObjectKey != "report-2.pdf" {
+			t.Fatalf("Objects = %v, want exactly [report-2.pdf]", got.Objects)
+		}
+
+		reqs := f.Requests()
+		if len(reqs) != 1 {
+			t.Fatalf("fake saw %d requests, want 1", len(reqs))
+		}
+		if got := reqs[0].Query.Get("prefix"); got != "a/b/" {
+			t.Errorf("prefix sent to S3 = %q, want %q", got, "a/b/")
+		}
+		if reqs[0].Query.Has("delimiter") {
+			t.Errorf("S3 request carried a delimiter = %q, want none (search walks the whole subtree)", reqs[0].Query.Get("delimiter"))
+		}
+	})
+
+	t.Run("query too short is rejected with 400", func(t *testing.T) {
+		f := newS3Fixture(t, "search-short-query-bucket")
+		f.PutTestObject("a.txt", "a", "text/plain")
+
+		req := newSearchObjectsRequest(f.bucket, url.Values{"q": {"r"}})
+		rec := httptest.NewRecorder()
+		(&Browse{}).SearchObjects(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400, body=%s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("match cap stops at 200 and reports reason=matches", func(t *testing.T) {
+		f := newS3Fixture(t, "search-match-cap-bucket")
+		for i := 0; i < 205; i++ {
+			f.PutTestObject(fmt.Sprintf("m/file-%03d.txt", i), "x", "text/plain")
+		}
+
+		req := newSearchObjectsRequest(f.bucket, url.Values{"q": {"file"}})
+		rec := httptest.NewRecorder()
+		(&Browse{}).SearchObjects(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+		}
+		var got schema.SearchObjectsResult
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("cannot decode response: %v", err)
+		}
+		if len(got.Objects) != 200 {
+			t.Errorf("len(Objects) = %d, want 200", len(got.Objects))
+		}
+		if !got.Truncated {
+			t.Errorf("Truncated = false, want true")
+		}
+		if got.Reason != "matches" {
+			t.Errorf("Reason = %q, want %q", got.Reason, "matches")
+		}
+	})
+
+	t.Run("scan cap stops the walk and reports reason=scan", func(t *testing.T) {
+		f := newS3Fixture(t, "search-scan-cap-bucket")
+		for i := 0; i < 25; i++ {
+			f.PutTestObject(fmt.Sprintf("s/obj-%03d.txt", i), "x", "text/plain")
+		}
+
+		origPageSize, origMaxPages := searchPageSize, searchMaxPages
+		searchPageSize, searchMaxPages = 2, 3
+		t.Cleanup(func() { searchPageSize, searchMaxPages = origPageSize, origMaxPages })
+
+		req := newSearchObjectsRequest(f.bucket, url.Values{"q": {"zzz"}})
+		rec := httptest.NewRecorder()
+		(&Browse{}).SearchObjects(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+		}
+		var got schema.SearchObjectsResult
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("cannot decode response: %v", err)
+		}
+		if len(got.Objects) != 0 {
+			t.Errorf("len(Objects) = %d, want 0 (q=zzz matches nothing)", len(got.Objects))
+		}
+		if got.Scanned != 6 {
+			t.Errorf("Scanned = %d, want 6 (3 pages x 2 per page)", got.Scanned)
+		}
+		if !got.Truncated {
+			t.Errorf("Truncated = false, want true")
+		}
+		if got.Reason != "scan" {
+			t.Errorf("Reason = %q, want %q", got.Reason, "scan")
+		}
+
+		var listCalls int
+		for _, r := range f.Requests() {
+			if r.Query.Get("list-type") == "2" {
+				listCalls++
+			}
+		}
+		if listCalls != 3 {
+			t.Errorf("fake saw %d ListObjectsV2 calls, want 3 (searchMaxPages)", listCalls)
+		}
+	})
+
+	t.Run("folder markers are skipped", func(t *testing.T) {
+		f := newS3Fixture(t, "search-folder-marker-bucket")
+		f.PutTestObject("d/", "", "application/x-directory")
+		f.PutTestObject("d/x.txt", "hi", "text/plain")
+
+		// q is "d/", not "d": minSearchQuery is 2, and "d/" is also exactly
+		// what the folder-marker key "d/" itself would match on if it were
+		// not excluded — this is the sharper version of the check ("skipped
+		// even though it would otherwise match"), not a weaker one.
+		req := newSearchObjectsRequest(f.bucket, url.Values{"q": {"d/"}})
+		rec := httptest.NewRecorder()
+		(&Browse{}).SearchObjects(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+		}
+		var got schema.SearchObjectsResult
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("cannot decode response: %v", err)
+		}
+		if len(got.Objects) != 1 || got.Objects[0].ObjectKey == nil || *got.Objects[0].ObjectKey != "d/x.txt" {
+			t.Fatalf("Objects = %v, want exactly [d/x.txt]", got.Objects)
+		}
+	})
+}
+
+// TestSearchRouteDoesNotShadowObjectNamedSearch mirrors the two relevant
+// registrations from router.go — GET /browse/{bucket}/{key...} and GET
+// /search/{bucket} — on a fresh mux and proves both are reachable for an
+// object literally named "search". SearchObjects has its own top-level
+// route precisely so it cannot collide with an object path the way a
+// segment under /browse/{bucket}/… would (see the comment on
+// Browse.SearchObjects and the "archive" route it deliberately avoids
+// repeating).
+func TestSearchRouteDoesNotShadowObjectNamedSearch(t *testing.T) {
+	f := newS3Fixture(t, "search-route-shadow-bucket")
+	f.PutTestObject("search", "im an object named search", "text/plain")
+
+	b := &Browse{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /browse/{bucket}", b.GetObjects)
+	mux.HandleFunc("GET /browse/{bucket}/{key...}", b.GetOneObject)
+	mux.HandleFunc("GET /search/{bucket}", b.SearchObjects)
+
+	// The object named "search" must still be reachable through the browse
+	// route (GetOneObject), not swallowed by the search route.
+	req := httptest.NewRequest(http.MethodGet, "/browse/"+f.bucket+"/search", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /browse/%s/search: status = %d, want 200, body=%s", f.bucket, rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"ETag"`) {
+		t.Errorf("GET /browse/%s/search body = %s, want object metadata (ETag) from GetOneObject", f.bucket, rec.Body.String())
+	}
+
+	// The search endpoint itself must dispatch to SearchObjects, not to
+	// GetOneObject with an empty key.
+	req2 := httptest.NewRequest(http.MethodGet, "/search/"+f.bucket+"?q=search", nil)
+	rec2 := httptest.NewRecorder()
+	mux.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("GET /search/%s: status = %d, want 200, body=%s", f.bucket, rec2.Code, rec2.Body.String())
+	}
+	var got schema.SearchObjectsResult
+	if err := json.Unmarshal(rec2.Body.Bytes(), &got); err != nil {
+		t.Fatalf("cannot decode search response: %v", err)
+	}
+	if len(got.Objects) != 1 || got.Objects[0].ObjectKey == nil || *got.Objects[0].ObjectKey != "search" {
+		t.Fatalf("Objects = %v, want exactly [search]", got.Objects)
+	}
+}
+
 func newGetOneObjectRequest(bucket, key string, query url.Values) *http.Request {
 	target := "/browse/" + bucket + "/" + key
 	if len(query) > 0 {
