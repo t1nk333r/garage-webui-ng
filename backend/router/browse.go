@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -84,6 +85,94 @@ func (b *Browse) GetObjects(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	utils.ResponseSuccess(w, result)
+}
+
+// SearchObjects answers GET /search/{bucket}?q=&prefix=. S3 has no
+// server-side search; this is a bounded walk of ListObjectsV2 WITHOUT a
+// delimiter under prefix (unlike GetObjects, which passes one to stop at one
+// level), keeping every key whose relative-to-prefix key
+// contains q case-insensitively. The walk stops at the first of: the match
+// cap, the scan-page cap, or end of listing — Truncated/Reason in the
+// response say which, so the UI can tell the caller to narrow the search.
+//
+// This has its own route rather than living under /browse/{bucket}/{key...}
+// specifically so a literal "search" segment can never shadow an object of
+// that name — see GET /browse/{bucket}/archive for the trade this avoids
+// repeating.
+func (b *Browse) SearchObjects(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	bucket := r.PathValue("bucket")
+	q := query.Get("q")
+	prefix := query.Get("prefix")
+
+	if utf8.RuneCountInString(q) < minSearchQuery {
+		utils.ResponseErrorStatus(w, fmt.Errorf("q must be at least %d characters", minSearchQuery), http.StatusBadRequest)
+		return
+	}
+
+	client, err := getS3Client(bucket)
+	if err != nil {
+		utils.ResponseError(w, err)
+		return
+	}
+
+	result := schema.SearchObjectsResult{
+		Objects: []schema.BrowserObject{},
+		Prefix:  prefix,
+		Query:   q,
+	}
+
+	needle := strings.ToLower(q)
+
+	var token *string
+	for pages := 0; pages < searchMaxPages; pages++ {
+		out, err := client.ListObjectsV2(r.Context(), &s3.ListObjectsV2Input{
+			Bucket:            aws.String(bucket),
+			Prefix:            aws.String(prefix),
+			MaxKeys:           aws.Int32(searchPageSize),
+			ContinuationToken: token,
+		})
+		if err != nil {
+			utils.ResponseError(w, err)
+			return
+		}
+
+		for _, obj := range out.Contents {
+			result.Scanned++
+
+			full := *obj.Key
+			rel := strings.TrimPrefix(full, prefix)
+			if rel == "" || strings.HasSuffix(rel, "/") {
+				// Folder marker (zero-length key ending in "/"), or the
+				// prefix itself: not a real object, skip it.
+				continue
+			}
+			if !strings.Contains(strings.ToLower(rel), needle) {
+				continue
+			}
+
+			result.Objects = append(result.Objects, schema.BrowserObject{
+				ObjectKey:    &rel,
+				LastModified: obj.LastModified,
+				Size:         obj.Size,
+				Url:          browseObjectURL(bucket, full),
+			})
+			if len(result.Objects) >= maxSearchMatches {
+				result.Truncated, result.Reason = true, "matches"
+				utils.ResponseSuccess(w, result)
+				return
+			}
+		}
+
+		if out.NextContinuationToken == nil {
+			utils.ResponseSuccess(w, result)
+			return
+		}
+		token = out.NextContinuationToken
+	}
+
+	result.Truncated, result.Reason = true, "scan"
 	utils.ResponseSuccess(w, result)
 }
 
@@ -876,6 +965,25 @@ func (b *Browse) ShareObject(w http.ResponseWriter, r *http.Request) {
 // maxListKeys is the S3 per-request cap for both ListObjectsV2 results and
 // DeleteObjects inputs. Garage follows the S3 API here.
 const maxListKeys = 1000
+
+// Search caps for SearchObjects. S3 has no search primitive; a search is a
+// bounded walk of ListObjectsV2 without a delimiter. Both caps are hard: the
+// response says which one stopped the walk so the UI can tell the user to
+// narrow it.
+const (
+	maxSearchMatches = 200
+	minSearchQuery   = 2
+)
+
+// searchPageSize and searchMaxPages are the per-page size and page-count caps
+// for SearchObjects's walk (default: 1000 × 20 = 20,000 keys scanned at
+// most). They are vars, not consts, purely so tests can shrink them to
+// exercise the scan cap without actually walking 20,000 keys; production
+// code never assigns to them.
+var (
+	searchPageSize int32 = maxListKeys
+	searchMaxPages       = 20
+)
 
 // normalizeListLimit clamps a caller-supplied page size into the range the S3
 // API accepts. Invalid, absent, zero, or negative values fall back to 100;
