@@ -151,9 +151,12 @@ The role is defined by an allowlist, not a denylist:
 - **Every other `GET` is allowed**, with one carve-out: `GET /api/v2/GetKeyInfo`
   with `showSecretKey=true` is denied, so a viewer can never reveal a secret
   access key.
-- **The only writes permitted are `POST /api/auth/logout` and
-  `POST /api/auth/change-password`** — both act solely on the caller's own
-  session and own account.
+- **Exactly three writes are permitted:** `POST /api/auth/logout` and
+  `POST /api/auth/change-password` act solely on the caller's own session and
+  own account; `POST /api/browse/download-token` mints a short-lived token
+  authorising a multi-object ZIP download — it is a POST only because the
+  selected key list is too large for a URL, and it mutates nothing, so a
+  read-only viewer may call it. Each is an exact path match, not a prefix.
 - Every other method (`POST`, `PUT`, `PATCH`, `DELETE`, …) is denied with
   **403** `forbidden: read-only session`.
 
