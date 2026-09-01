@@ -212,6 +212,7 @@ Garage WebUI-NG reads your `garage.toml` and lets every setting be overridden by
 | Variable | Default | Description |
 |---|---|---|
 | `API_BASE_URL` | from `garage.toml` | Garage **Admin API** endpoint (cluster/bucket/key management). |
+| `API_ADMIN_KEY` | from `garage.toml` (`admin_token`) | Override for the Garage admin bearer token. Supply it as a secret (env file or secret store) — never inline in a compose file. |
 | `S3_ENDPOINT_URL` | from `garage.toml` | Garage **S3 API** endpoint (object browse/upload/download). |
 | `S3_PUBLIC_ENDPOINT_URL` | *(unset)* | Public S3 endpoint the browser can reach — enables **presigned share links**. |
 | `S3_WEB_PUBLIC_URL` | *(unset)* | Public base URL for **static website hosting**, overriding the `http://<bucket><root_domain>:<port>` address derived from `garage.toml`. **Must contain a `{bucket}` token** (`https://{bucket}.web.example.com`) — Garage's website endpoint resolves the bucket from the `Host` header only, so a template without the token cannot address any bucket and is treated as unset. Set this whenever a reverse proxy fronts Garage's web endpoint. |
@@ -343,6 +344,8 @@ The backend serves everything under `/api`. It is primarily a **gateway to Garag
 | `GET` | `/api/buckets` | Enriched bucket list. |
 | `GET/PUT/DELETE` | `/api/browse/{bucket}/{key...}` | List / upload / download / delete objects. |
 | `POST` | `/api/browse/{bucket}` | Bulk-delete selected objects. |
+| `POST` | `/api/browse/download-token` | Mint a short-lived token for a selected-key ZIP download (POST because the key list is too large for a URL — it mutates nothing, so it's one of the three writes a read-only viewer may call). |
+| `GET` | `/api/browse/{bucket}/archive` | Stream the selected objects as a ZIP, authorised by the token above. |
 | `GET/DELETE` | `/api/multipart/{bucket}` | List / abort orphaned multipart uploads. |
 | `GET` | `/api/share/{bucket}/{key...}?expires=` | Generate a presigned share link. |
 | — | `/api/setup`, `/api/auth/*`, `/api/admin/users*` | Setup wizard, sessions, and user administration. |

@@ -11,12 +11,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-Frontend lives at the repo root (package manager: **pnpm**); backend under `backend/` (**Go 1.25+** — the `go` directive in `backend/go.mod` is `1.25.0`, raised by `modernc.org/sqlite`; CI and the Docker builder pin an **exact** patch,
-currently `1.25.12` / `golang:1.25.12-alpine`, in lockstep across
-`.github/workflows/ci.yml` ×2, the `Dockerfile`, and the Go version baked into
-the Jenkins agent image (see the `Jenkinsfile` header). A floating minor is what let a vulnerable stdlib patch into a
-release build, and `govulncheck` in CI is blocking, so renewing the pin is a
-deliberate chore rather than something to loosen).
+Frontend lives at the repo root (package manager: **pnpm**); backend under `backend/` (**Go 1.25+** — the `go` directive in `backend/go.mod` is `1.25.0`, raised by `modernc.org/sqlite`; the Docker builder pins an **exact** patch,
+currently `1.25.13` / `golang:1.25.13-alpine`, in the single in-repo site —
+the `Dockerfile` — plus the Jenkins agent image (out of repo; its version is
+recorded in the `Jenkinsfile` header comment) which must stay in lockstep,
+since `govulncheck` in the `Jenkinsfile` runs under that agent's toolchain. A
+floating minor is what let a vulnerable stdlib patch into a release build, and
+`govulncheck` in CI is blocking, so renewing the pin is a deliberate chore
+rather than something to loosen).
 
 Frontend:
 - `pnpm install`
@@ -32,7 +34,7 @@ Backend (`cd backend`):
 - `go vet ./...` · `gofmt -l .`
 - `make` — **release build** (`CGO_ENABLED=0 go build -o main -tags=prod main.go`). Requires `backend/ui/dist/` to exist (the built frontend, copied in). A clean checkout cannot `make` until you run the frontend build and copy `dist` → `backend/ui/dist`.
 
-`docker build .` runs the full pipeline (frontend build → Go build with embedded UI → `scratch` image). CI is `.github/workflows/ci.yml`.
+`docker build .` runs the full pipeline (frontend build → Go build with embedded UI → `scratch` image). CI is the root `Jenkinsfile` (lint non-blocking, typecheck/test/build, Go build/vet/gofmt/test, blocking `govulncheck`, advisory `pnpm audit`; on `main` it also builds and pushes the multi-arch image to GHCR, and on a `v*` tag it additionally builds signed release binaries). There is no GitHub Actions workflow left in this repo — see [`docs/ci-jenkins.md`](docs/ci-jenkins.md) for the surrounding setup, credentials and constraints.
 
 ## Architecture (the parts that span multiple files)
 
@@ -64,12 +66,40 @@ Backend (`cd backend`):
 
 Living backlog of implementation plans maintained via the `/improve` skill. Structure:
 - `README.md` — index with execution order, status (DONE/BLOCKED/TODO), dependencies, considered-and-rejected findings, and maintenance notes
-- `001-*.md` through `033-*.md` — numbered plans, one per feature/bug/refactor, each self-contained for hand-off execution
+- `001-*.md` onward — numbered plans, one per feature/bug/refactor, each self-contained for hand-off execution
 - `design/` — spike/design docs for exploratory findings (e.g. presigned shares, operator roles)
 
 **Workflow:** advisor skill audits findings → writes self-contained plans → dispatcher runs `/improve execute <plan>` (each plan gets a cheaper executor in an isolated git worktree) → tech-lead review (re-verify gates, check scope/quality, audit new tests) → merge.
 
-**Current release (3.1.0, commit f9cd2c6):** Plans 001–032 completed and shipped. Plan 033 (header account redesign) written, unexecuted. Plan 031 (download-selected ZIP) executed, in review (one fix needed for pre-flight validation). Plan 029 (offline admin-recovery CLI, -reset-password / -create-admin / -list-users) shipped.
+**Current release:** whatever `git describe --tags` reports — do not hardcode a
+version here, it will only go stale. `plans/README.md` is the authoritative
+status of every plan (done/blocked/todo, dependencies, branch names); read it
+rather than trusting a summary in this file.
+
+Subsystems shipped since the plans below stopped being individually called
+out here, so an agent working nearby doesn't fly blind:
+
+- **Upload queue.** `src/pages/buckets/manage/browse/upload-queue.ts` drives
+  multi-file uploads client-side with retry/progress state. `MAX_UPLOAD_SIZE_MB`
+  (`backend/router/browse.go`) is enforced with a pre-upload 413 so an
+  oversized file is rejected before it's buffered, not after.
+- **Selected-object ZIP download.** `POST /browse/download-token`
+  (`backend/router/browse.go`) mints a short-lived token for a list of keys —
+  POST only because the list is too large for a URL, and it mutates nothing —
+  then `GET /browse/{bucket}/archive?token=...` streams the objects as a ZIP.
+  A read-only viewer may call both; see `backend/middleware/auth.go`.
+- **Object-serving header policy.** Viewing an object inline
+  (`backend/router/browse.go`) sets `X-Content-Type-Options: nosniff` and
+  `X-Frame-Options: SAMEORIGIN` always, plus a `Content-Security-Policy` that
+  sandboxes the response body (`objectViewCSP`) — an inline-safe MIME type
+  still gets a scriptless, framed-only-by-self origin.
+- **Release signing.** `backend/cmd/relsign` (sign/verify/keygen, stdlib
+  crypto only) and `backend/release_key.go` (the compiled-in public key) back
+  a `SHA256SUMS` + `SHA256SUMS.sig` pair produced for every tagged release.
+  The private key lives only in the Jenkins `relsign-key` credential; the
+  signing stage in the `Jenkinsfile` has no fallback, so the release job fails
+  outright if that credential is missing rather than shipping unsigned
+  artifacts.
 
 **Lessons from recent runs:**
 - Session-touching handlers must be tested through `sessMgr.LoadAndSave(http.HandlerFunc(...))`, not called directly — `utils.Session.Get` panics without it.
