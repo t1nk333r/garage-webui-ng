@@ -1,9 +1,11 @@
 package utils
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -109,20 +111,17 @@ func TestGetSecretEnvUnset(t *testing.T) {
 	}
 }
 
-// TestReadSecretFileErrorDoesNotLeakSecretContent proves the no-leak
-// property directly: when the underlying file cannot be read, the resulting
-// error must never contain the bytes sitting behind the failed path — only
-// the path and the OS's own (content-free) failure reason. GetSecretEnv
-// itself cannot be exercised here on the failure path since it calls
-// log.Fatalf; readSecretFile is the extracted, testable core that builds the
-// same error.
-func TestReadSecretFileErrorDoesNotLeakSecretContent(t *testing.T) {
+// TestReadSecretFileErrorIsPathOnly pins the no-leak property by asserting
+// the error's EXACT shape, not merely that one canary string is absent.
+//
+// The weaker "does not contain the secret" form is vacuous here: os.ReadFile
+// on a directory fails before reading anything, so `data` is empty and an
+// implementation that interpolated the file contents straight into the error
+// would still pass. Requiring the exact message means any extra component —
+// contents included — fails this test.
+func TestReadSecretFileErrorIsPathOnly(t *testing.T) {
 	dir := t.TempDir()
 
-	// A decoy secret value sits on disk, inside the directory we are about
-	// to (mis)use as the "file" path. os.ReadFile on a directory always
-	// fails, on any OS/user (including root), without ever having read this
-	// content into memory.
 	const decoySecret = "sekret-canary-9f8e7d6c5b4a1230"
 	if err := os.WriteFile(filepath.Join(dir, "decoy"), []byte(decoySecret), 0o600); err != nil {
 		t.Fatalf("WriteFile() failed: %v", err)
@@ -133,8 +132,37 @@ func TestReadSecretFileErrorDoesNotLeakSecretContent(t *testing.T) {
 		t.Fatal("readSecretFile() error = nil, want non-nil (path is a directory)")
 	}
 
+	// The only permitted components are the variable name, the path, and the
+	// OS error — which itself never quotes file contents.
+	want := fmt.Sprintf("cannot read SECRET_TEST_LEAK_FILE=%q: %v", dir, &os.PathError{
+		Op: "read", Path: dir, Err: syscall.EISDIR,
+	})
+	if err.Error() != want {
+		t.Errorf("readSecretFile() error = %q, want exactly %q", err.Error(), want)
+	}
+
 	if strings.Contains(err.Error(), decoySecret) {
 		t.Errorf("readSecretFile() error leaks secret content: %q", err.Error())
+	}
+}
+
+// A secret file that IS readable must never have its bytes reach an error;
+// this is the case the directory test above cannot reach, so it is pinned by
+// asserting the value comes back cleanly with no error at all.
+func TestReadSecretFileSuccessReturnsValueAndNoError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "secret")
+	const value = "sekret-canary-9f8e7d6c5b4a1230"
+	if err := os.WriteFile(path, []byte(value+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() failed: %v", err)
+	}
+
+	got, err := readSecretFile("SECRET_TEST_OK", path)
+	if err != nil {
+		t.Fatalf("readSecretFile() error = %v, want nil", err)
+	}
+	if got != value {
+		t.Errorf("readSecretFile() = %q, want %q", got, value)
 	}
 }
 
