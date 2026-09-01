@@ -101,8 +101,8 @@ func main() {
 	// database is authoritative and AUTH_USER_PASS is ignored forever.
 	imported, err := store.ImportLegacyUsers(
 		context.Background(), st,
-		utils.GetEnv("AUTH_USER_PASS", ""),
-		utils.GetEnv("AUTH_VIEWER_USER_PASS", ""),
+		utils.GetSecretEnv("AUTH_USER_PASS"),
+		utils.GetSecretEnv("AUTH_VIEWER_USER_PASS"),
 	)
 	if err != nil {
 		log.Printf("legacy user import failed: %v", err)

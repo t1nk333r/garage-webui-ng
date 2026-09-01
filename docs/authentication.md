@@ -563,7 +563,10 @@ Only if you have no shell access to the host at all.
 
 Pre-database releases read accounts from `AUTH_USER_PASS` and
 `AUTH_VIEWER_USER_PASS` on every request. They are now an **import-only** path,
-kept so an existing deployment survives the upgrade:
+kept so an existing deployment survives the upgrade. Both accept a `_FILE`
+variant naming a file that holds the value (`AUTH_USER_PASS_FILE`,
+`AUTH_VIEWER_USER_PASS_FILE`), which wins over the plain variable — see the
+README's environment variable table.
 
 - They are read **exactly once**, at startup, and **only when the users table is
   empty**. After that the database is authoritative and the variables are never
