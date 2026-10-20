@@ -150,6 +150,9 @@ def cmd_toml(path, token_file, header_out):
     port = re.search(r":(\d+)$", str(admin.get("api_bind_addr", "")))
     print(conf.get("metadata_dir", ""))
     print(port.group(1) if port else "")
+    data = conf.get("data_dir", [])  # a path, or a list of {path, capacity}
+    for d in [data] if isinstance(data, str) else data:
+        print(d if isinstance(d, str) else d.get("path", ""))
 
 def cmd_json(path, *keys):
     value = load(path)
@@ -232,17 +235,21 @@ PHASE=idle # idle | stopped | swapped | done: what a failure has to undo
 ROLLBACK=  # core | gui
 BK=
 UPDATED=0 # a component has been updated in this run
+UPDATED_NOTE=
 LOG_PID=
 
-on_exit() {
-	local rc=$?
+on_exit() { # exit status
+	trap '' INT TERM HUP
+	local rc=$1
 	set +e
 	trap - EXIT
-	trap '' INT TERM HUP
 	if ((rc != 0)) && [[ $PHASE == stopped || $PHASE == swapped ]]; then
 		if "rollback_$ROLLBACK"; then rc=3; else rc=4; fi
-	elif ((rc == 1 && UPDATED)); then
+	elif ((rc != 0 && UPDATED)); then
 		rc=5 # something was updated before a later step failed
+	fi
+	if ((rc != 0 && UPDATED)); then
+		warn "note: $UPDATED_NOTE completed earlier in this run and stays in place"
 	fi
 	((${#NEW_FILES[@]})) && rm -f -- "${NEW_FILES[@]}"
 	[[ -n $WORK ]] && rm -rf -- "$WORK"
@@ -420,8 +427,14 @@ garage_version() { # binary -> vX.Y.Z, empty when it does not run
 	printf '%s' "$v"
 }
 
+garage_path() { # path from garage.toml -> absolute, symlinks and trailing slash resolved
+	local p=$1
+	[[ $p == /* ]] || p="$GARAGE_WD/$p" # relative to Garage's working directory, not ours
+	realpath -m -- "$p"
+}
+
 detect_core() {
-	local info port
+	local info port lines d
 	if [[ -z $GARAGE_PLATFORM ]]; then
 		case $(uname -m) in
 		x86_64) GARAGE_PLATFORM=x86_64-unknown-linux-musl ;;
@@ -430,17 +443,23 @@ detect_core() {
 		i686 | i386) GARAGE_PLATFORM=i686-unknown-linux-musl ;;
 		esac
 	fi
+	# Garage, and its CLI, resolve relative paths in garage.toml against their
+	# own working directory.
+	GARAGE_WD=$(sc show -p WorkingDirectory --value "$GARAGE_SERVICE" 2>/dev/null) || GARAGE_WD=
+	GARAGE_WD=${GARAGE_WD#[-!]} # systemd may prefix "-" or "!"
+	[[ $GARAGE_WD == /* ]] || GARAGE_WD=/
 	ADMIN_HDR=$WORK/admin.hdr
 	rm -f -- "$ADMIN_HDR"
 	info=$(py toml "$GARAGE_CONFIG" "$GARAGE_ADMIN_TOKEN_FILE" "$ADMIN_HDR") ||
 		die "cannot read $GARAGE_CONFIG"
-	{
-		read -r META_DIR
-		read -r port
-	} <<<"$info"
+	mapfile -t lines <<<"$info"
+	META_DIR=${lines[0]} port=${lines[1]}
+	DATA_DIRS=()
+	for d in "${lines[@]:2}"; do
+		[[ -z $d ]] || DATA_DIRS+=("$(garage_path "$d")")
+	done
 	[[ -f $ADMIN_HDR ]] || ADMIN_HDR=
-	# Resolve symlinks and a trailing slash, so backups copy the data itself.
-	[[ -z $META_DIR ]] || META_DIR=$(realpath -e -- "$META_DIR" 2>/dev/null || printf '%s' "$META_DIR")
+	[[ -z $META_DIR ]] || META_DIR=$(garage_path "$META_DIR")
 	if [[ -z $GARAGE_ADMIN_URL ]]; then
 		[[ -n $port ]] || die "cannot work out the admin API address from $GARAGE_CONFIG; set GARAGE_ADMIN_URL"
 		GARAGE_ADMIN_URL=http://127.0.0.1:$port
@@ -503,10 +522,13 @@ plan_core() { # version file sha256
 }
 
 apply_core() {
-	local bk got counts_before counts_after started running size meta_size backup_dir
+	local bk got counts_before counts_after started running size meta_size backup_dir d
 	[[ $META_DIR == /?* && -d $META_DIR ]] || die "metadata_dir from $GARAGE_CONFIG is not an absolute directory: '$META_DIR'"
 	backup_dir=$(realpath -e -- "$BACKUP_DIR")
 	case "$backup_dir/" in "$META_DIR/"*) die "BACKUP_DIR must not be inside metadata_dir ($META_DIR)" ;; esac
+	for d in "${DATA_DIRS[@]}"; do
+		case "$d/" in "$META_DIR/"*) die "data_dir $d is inside metadata_dir: back that layout up by hand" ;; esac
+	done
 	if [[ -n $CORE_URL ]]; then
 		step "Downloading Garage $CORE_TARGET ($((CORE_SIZE >> 20)) MiB)"
 		need_space "$WORK" "$CORE_SIZE"
@@ -534,7 +556,8 @@ apply_core() {
 	fi
 
 	step "Taking a metadata snapshot"
-	"$GARAGE_BIN" -c "$GARAGE_CONFIG" meta snapshot >/dev/null || die "garage meta snapshot failed; nothing was changed"
+	(cd -- "$GARAGE_WD" && "$GARAGE_BIN" -c "$GARAGE_CONFIG" meta snapshot) >/dev/null ||
+		die "garage meta snapshot failed; nothing was changed"
 	NEW_FILES+=("$GARAGE_BIN.new")
 	install -m 0755 -- "$WORK/garage" "$GARAGE_BIN.new"
 	bk=$(new_backup core "$CORE_INSTALLED" "$CORE_TARGET")
@@ -570,7 +593,7 @@ EOF
 			die "bucket/key counts changed: before $counts_before, after $counts_after"
 	fi
 	journal_clean "$GARAGE_SERVICE" "$started" || die "$GARAGE_SERVICE logged a panic after starting"
-	PHASE='done' UPDATED=1
+	PHASE='done' UPDATED=1 UPDATED_NOTE="the Garage update $CORE_INSTALLED -> $CORE_TARGET"
 	say "Garage updated: $CORE_INSTALLED -> $CORE_TARGET (healthy${counts_after:+; buckets/keys unchanged at ${counts_after/ //}}). Backup: $bk"
 	syslog "core $CORE_INSTALLED -> $CORE_TARGET: ok"
 	prune_backups core || warn "could not prune old core backups"
@@ -648,7 +671,7 @@ detect_gui() {
 			WEBUI_DB="${wd:-/}/$WEBUI_DB"
 		fi
 	fi
-	WEBUI_DB=$(realpath -e -- "$WEBUI_DB" 2>/dev/null || printf '%s' "$WEBUI_DB")
+	WEBUI_DB=$(realpath -m -- "$WEBUI_DB")
 	GUI_INSTALLED=$(webui_version "$WEBUI_BIN")
 }
 
@@ -772,7 +795,7 @@ EOF
 		die "WebUI-NG did not respond at $WEBUI_URL within ${WEBUI_HEALTH_TIMEOUT}s${needs_setup:+ (or its setup state changed)}"
 	sc is-active --quiet "$WEBUI_SERVICE" || die "$WEBUI_SERVICE is not active"
 	journal_clean "$WEBUI_SERVICE" "$started" || die "$WEBUI_SERVICE logged a panic after starting"
-	PHASE='done' UPDATED=1
+	PHASE='done' UPDATED=1 UPDATED_NOTE="the WebUI-NG update $GUI_INSTALLED -> $GUI_TARGET"
 	say "WebUI-NG updated: $GUI_INSTALLED -> $GUI_TARGET (responding at $WEBUI_URL). Backup: $bk"
 	syslog "gui $GUI_INSTALLED -> $GUI_TARGET: ok"
 	prune_backups gui || warn "could not prune old gui backups"
@@ -866,7 +889,14 @@ main() {
 				usage >&2
 				exit 2
 			}
-			if [[ $1 == --file ]]; then file=$2; else sha=$2; fi
+			if [[ $1 == --file ]]; then
+				file=$2
+			elif [[ $2 =~ ^[0-9a-fA-F]{64}$ ]]; then
+				sha=$2
+			else
+				warn "--sha256 needs a 64-digit hex SHA-256"
+				exit 2
+			fi
 			shift
 			;;
 		-h | --help | help)
@@ -906,12 +936,13 @@ main() {
 	read -ra SYSTEMCTL_CMD <<<"$SYSTEMCTL"
 	read -ra JOURNALCTL_CMD <<<"$JOURNALCTL"
 	((KEEP_BACKUPS >= 1)) || KEEP_BACKUPS=1
+	GARAGE_CONFIG=$(realpath -m -- "$GARAGE_CONFIG") # the CLI runs from Garage's directory
 	for c in curl python3 sha256sum flock awk install; do
 		command -v "$c" >/dev/null || die "missing required command: $c"
 	done
 	py check 2>/dev/null || die "Python 3.11 or newer is required"
 
-	trap on_exit EXIT
+	trap 'on_exit "$?"' EXIT
 	trap 'exit 130' INT TERM # a deliberate interruption: roll back
 	trap '' HUP PIPE         # a lost terminal or SSH session: carry on
 	mkdir -p -- "$BACKUP_DIR"

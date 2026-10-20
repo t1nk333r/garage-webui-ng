@@ -185,3 +185,9 @@ and run with `GARAGE_UPDATE_CONF=/path/to/that.conf garage-update …`.
 - Garage downloads are trusted on HTTPS plus size and self-reported version
   (see above).
 - It updates an existing, working install; it does not install from scratch.
+- A `data_dir` inside `metadata_dir` is refused: backing up the metadata would
+  copy every data block, and a rollback would wipe them. Back that layout up
+  by hand.
+- Relative paths in `garage.toml` are resolved against Garage's own working
+  directory (the unit's `WorkingDirectory`), and the Garage CLI is run from
+  there, exactly as Garage itself sees them.
