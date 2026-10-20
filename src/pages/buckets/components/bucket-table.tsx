@@ -28,12 +28,14 @@ type Item = Bucket & { aliases: string[] };
 type Props = {
   items: Item[];
   isLoading: boolean;
+  error: Error | null;
+  onRetry: () => void;
   isFiltered: boolean;
 };
 
 const stop = (e: MouseEvent) => e.stopPropagation();
 
-const BucketTable = ({ items, isLoading, isFiltered }: Props) => {
+const BucketTable = ({ items, isLoading, error, onRetry, isFiltered }: Props) => {
   const navigate = useNavigate();
   const { data: config } = useConfig();
   const [sort, setSort] = useState<BucketSort>({
@@ -76,6 +78,20 @@ const BucketTable = ({ items, isLoading, isFiltered }: Props) => {
               <td colSpan={5} className="py-12 text-center text-base-content/60">
                 <span className="loading loading-spinner loading-sm mr-2 align-middle" />
                 Loading buckets…
+              </td>
+            </tr>
+          ) : error && items.length === 0 ? (
+            <tr>
+              <td colSpan={5} className="py-12 text-center">
+                <p className="text-error">Couldn&apos;t load buckets</p>
+                <p className="mt-1 text-xs text-base-content/60">{error.message}</p>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm mt-3 border border-base-300"
+                  onClick={onRetry}
+                >
+                  Retry
+                </button>
               </td>
             </tr>
           ) : sorted.length === 0 ? (

@@ -16,7 +16,7 @@ export type Bucket = {
   unfinishedMultipartUploadParts: number;
   unfinishedMultipartUploadBytes: number;
   quotas: Quotas;
-  /** RFC 3339 creation time; absent when the bucket's details failed to load. */
+  /** RFC 3339 creation time, from ListBuckets; treat empty or absent as unknown. */
   created?: string;
 };
 

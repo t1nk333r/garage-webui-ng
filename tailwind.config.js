@@ -23,7 +23,7 @@ const darkPastel = {
   "secondary-content": "#1e2030",
   accent: "#8bd5ca",
   "accent-content": "#1e2030",
-  neutral: "#363a4f",
+  neutral: "#494d64",
   "neutral-content": "#cad3f5",
   "base-100": "#24273a",
   "base-200": "#1e2030",

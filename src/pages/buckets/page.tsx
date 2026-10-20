@@ -26,7 +26,7 @@ export const matchesBucketSearch = (
 };
 
 const BucketsPage = () => {
-  const { data, isLoading } = useBuckets();
+  const { data, isLoading, error, refetch } = useBuckets();
   const uiStyle = useStore(appStore, (s) => s.uiStyle);
   const [search, setSearch] = useState("");
 
@@ -59,7 +59,9 @@ const BucketsPage = () => {
           subtitle={
             data
               ? `${data.length} bucket${data.length === 1 ? "" : "s"}`
-              : "Loading…"
+              : error
+                ? "Couldn't load buckets"
+                : "Loading…"
           }
         />
 
@@ -82,6 +84,8 @@ const BucketsPage = () => {
         <BucketTable
           items={items}
           isLoading={isLoading}
+          error={error}
+          onRetry={() => refetch()}
           isFiltered={search.length > 0}
         />
       </div>

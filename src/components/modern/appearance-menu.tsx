@@ -10,8 +10,9 @@ const uiStyleLabels: Record<UiStyle, string> = {
   classic: "Classic layout",
 };
 
+// The check mark is visual only; the item's aria-checked carries the state.
 const CheckSlot = ({ checked }: { checked: boolean }) => (
-  <Check size={16} className={cn(!checked && "invisible")} />
+  <Check size={16} aria-hidden="true" className={cn(!checked && "invisible")} />
 );
 
 /**
@@ -27,7 +28,11 @@ export const UiStyleMenuItems = () => {
         Interface
       </li>
       {(Object.keys(uiStyleLabels) as UiStyle[]).map((style) => (
-        <MenuItem key={style} onClick={() => appStore.setUiStyle(style)}>
+        <MenuItem
+          key={style}
+          checked={uiStyle === style}
+          onClick={() => appStore.setUiStyle(style)}
+        >
           <CheckSlot checked={uiStyle === style} />
           {uiStyleLabels[style]}
         </MenuItem>
@@ -52,7 +57,11 @@ const AppearanceMenu = () => {
         Theme
       </li>
       {themes.map((name) => (
-        <MenuItem key={name} onClick={() => appStore.setTheme(name)}>
+        <MenuItem
+          key={name}
+          checked={theme === name}
+          onClick={() => appStore.setTheme(name)}
+        >
           <CheckSlot checked={theme === name} />
           {themeLabel(name)}
         </MenuItem>

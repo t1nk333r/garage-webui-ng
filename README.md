@@ -448,7 +448,7 @@ CI and releases run on a self-hosted Jenkins rather than GitHub Actions — the 
 
 ## 📄 License
 
-Released under the [MIT License](LICENSE). Garage WebUI-NG is a next-generation fork; the original copyright is retained below.
+Released under the [MIT License](LICENSE). Garage WebUI-NG is a next-generation fork; the original copyright is retained below. Material adapted from other projects is listed, with its license, in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ## 🙏 Acknowledgements
 

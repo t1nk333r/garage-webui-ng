@@ -11,9 +11,10 @@ type SortableBucket = Pick<Bucket, "objects" | "bytes" | "created"> & {
   aliases: string[];
 };
 
-// undefined means "unknown" — for instance a bucket whose details failed to
-// load — and always sorts last, in either direction, rather than passing for
-// an empty bucket.
+// undefined means "unknown" — a missing creation time or a bucket without an
+// alias — and always sorts last, in either direction. (A bucket whose details
+// failed to load reports 0 objects and 0 bytes; the backend cannot tell that
+// apart from an empty bucket, so neither can this.)
 const accessors: Record<
   BucketSortColumn,
   (bucket: SortableBucket) => string | number | undefined

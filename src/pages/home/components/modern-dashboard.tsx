@@ -64,9 +64,15 @@ type UsageRow = {
 };
 
 const ModernDashboard = () => {
-  const { data: health } = useNodesHealth();
-  const { data: buckets } = useBuckets();
-  const state = clusterState(health?.status);
+  const healthQuery = useNodesHealth();
+  const bucketsQuery = useBuckets();
+  const health = healthQuery.data;
+  const buckets = bucketsQuery.data;
+  // A failed health request is not Garage's own "unavailable" status, so it
+  // gets a label of its own.
+  const state: ClusterState = healthQuery.isError
+    ? { label: "Unknown", tone: "neutral", icon: Activity }
+    : clusterState(health?.status);
 
   const totals = useMemo(() => {
     if (!buckets) return null;
@@ -105,6 +111,8 @@ const ModernDashboard = () => {
     [buckets]
   );
 
+  const pending = bucketsQuery.isError ? "—" : "…";
+
   return (
     <div className="space-y-6">
       <Page
@@ -112,14 +120,16 @@ const ModernDashboard = () => {
         subtitle={
           health
             ? `${health.connectedNodes}/${health.knownNodes} nodes connected`
-            : "Loading cluster status…"
+            : healthQuery.isError
+              ? "Cluster status unavailable"
+              : "Loading cluster status…"
         }
       />
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Total storage"
-          value={totals ? readableBytes(totals.bytes) : "…"}
+          value={totals ? readableBytes(totals.bytes) : pending}
           sub={
             totals
               ? `across ${totals.count} bucket${totals.count === 1 ? "" : "s"}`
@@ -130,7 +140,7 @@ const ModernDashboard = () => {
         />
         <StatCard
           label="Objects"
-          value={totals ? formatCount(totals.objects) : "…"}
+          value={totals ? formatCount(totals.objects) : pending}
           valueTitle={totals?.objects.toLocaleString()}
           sub="stored objects"
           icon={FolderOpen}
@@ -138,7 +148,7 @@ const ModernDashboard = () => {
         />
         <StatCard
           label="Buckets"
-          value={totals ? formatCount(totals.count) : "…"}
+          value={totals ? formatCount(totals.count) : pending}
           sub="storage buckets"
           icon={ArchiveIcon}
           tone="accent"
@@ -164,7 +174,7 @@ const ModernDashboard = () => {
             description="Distribution of storage across buckets"
           >
             {!buckets ? (
-              <Placeholder>Loading…</Placeholder>
+              <Unavailable query={bucketsQuery} what="buckets" />
             ) : usage.length > 0 ? (
               <BucketUsageChart data={usage} />
             ) : (
@@ -177,7 +187,7 @@ const ModernDashboard = () => {
             description="Size and object count per bucket, largest first"
           >
             {!buckets ? (
-              <Placeholder>Loading…</Placeholder>
+              <Unavailable query={bucketsQuery} what="buckets" />
             ) : usage.length > 0 ? (
               <Breakdown rows={usage} />
             ) : (
@@ -221,7 +231,7 @@ const ModernDashboard = () => {
                 />
               </ul>
             ) : (
-              <Placeholder>Loading cluster status…</Placeholder>
+              <Unavailable query={healthQuery} what="cluster status" />
             )}
           </SectionCard>
 
@@ -235,7 +245,7 @@ const ModernDashboard = () => {
             }
           >
             {!buckets ? (
-              <Placeholder>Loading…</Placeholder>
+              <Unavailable query={bucketsQuery} what="buckets" />
             ) : recent.length === 0 ? (
               <Placeholder>
                 No buckets yet —{" "}
@@ -297,6 +307,32 @@ const Placeholder = ({ children }: { children: ReactNode }) => (
   <p className="py-8 text-center text-sm text-base-content/60">{children}</p>
 );
 
+type QueryState = {
+  isError: boolean;
+  error: Error | null;
+  refetch: () => unknown;
+};
+
+/** "Loading…" while a query is pending; the error and a retry once it fails. */
+const Unavailable = ({ query, what }: { query: QueryState; what: string }) =>
+  query.isError ? (
+    <div className="py-8 text-center text-sm">
+      <p className="text-error">Couldn&apos;t load {what}</p>
+      {query.error?.message ? (
+        <p className="mt-1 text-xs text-base-content/60">{query.error.message}</p>
+      ) : null}
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm mt-3 border border-base-300"
+        onClick={() => query.refetch()}
+      >
+        Retry
+      </button>
+    </div>
+  ) : (
+    <Placeholder>Loading…</Placeholder>
+  );
+
 type StatCardProps = {
   label: string;
   value: string;
@@ -338,10 +374,13 @@ const HealthRow = ({ label, up, total, note }: HealthRowProps) => {
     <li className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
       <Icon
         size={16}
-        aria-label={ok ? "OK" : "Attention"}
+        aria-hidden="true"
         className={ok ? "shrink-0 text-success" : "shrink-0 text-warning"}
       />
-      <span className="flex-1 text-sm">{label}</span>
+      <span className="flex-1 text-sm">
+        {label}
+        <span className="sr-only">{ok ? " (OK)" : " (needs attention)"}</span>
+      </span>
       <span className="text-xs text-base-content/60">{note}</span>
       <span className="w-16 text-right text-sm font-semibold tabular-nums">
         {up}/{total}

@@ -142,6 +142,32 @@ describe("<Menu />", () => {
     expect(screen.getAllByRole("menuitem")).toHaveLength(2);
   });
 
+  it("renders a checked choice as a menuitemradio that reports its state", async () => {
+    const user = userEvent.setup();
+    renderMenu(
+      <>
+        <MenuItem checked onClick={() => {}}>
+          Dark
+        </MenuItem>
+        <MenuItem checked={false} onClick={() => {}}>
+          Light
+        </MenuItem>
+      </>
+    );
+
+    await openMenu(user);
+
+    expect(screen.queryAllByRole("menuitem")).toHaveLength(0);
+    expect(screen.getByRole("menuitemradio", { name: "Dark" })).toHaveAttribute(
+      "aria-checked",
+      "true"
+    );
+    expect(screen.getByRole("menuitemradio", { name: "Light" })).toHaveAttribute(
+      "aria-checked",
+      "false"
+    );
+  });
+
   it("closes on Escape and returns focus to the trigger", async () => {
     const user = userEvent.setup();
     renderMenu();

@@ -41,7 +41,14 @@ func (b *Buckets) GetAll(w http.ResponseWriter, r *http.Request) {
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			fallback := schema.Bucket{ID: bucket.ID, GlobalAliases: bucket.GlobalAliases}
+			// Everything ListBuckets already told us survives a failed
+			// GetBucketInfo; only the per-bucket details are lost.
+			fallback := schema.Bucket{
+				ID:            bucket.ID,
+				GlobalAliases: bucket.GlobalAliases,
+				LocalAliases:  bucket.LocalAliases,
+				Created:       bucket.Created,
+			}
 
 			body, err := utils.Garage.Fetch(fmt.Sprintf("/v2/GetBucketInfo?id=%s", bucket.ID), &utils.FetchOptions{})
 			if err != nil {

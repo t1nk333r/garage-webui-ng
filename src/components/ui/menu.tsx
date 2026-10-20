@@ -269,6 +269,11 @@ export type MenuItemProps = {
   icon?: LucideIcon;
   iconSize?: number;
   className?: string;
+  /**
+   * Set for an item that is one choice of several (a theme picker): it then
+   * renders as `menuitemradio` and announces whether it is the current one.
+   */
+  checked?: boolean;
   children: ReactNode;
 };
 
@@ -288,6 +293,7 @@ export const MenuItem = ({
   icon: Icon,
   iconSize = 16,
   className,
+  checked,
   children,
 }: MenuItemProps) => {
   const menu = useMenuContext();
@@ -299,7 +305,8 @@ export const MenuItem = ({
       <button
         type="button"
         ref={ref}
-        role="menuitem"
+        role={checked === undefined ? "menuitem" : "menuitemradio"}
+        aria-checked={checked}
         tabIndex={isActive ? 0 : -1}
         aria-disabled={disabled || undefined}
         title={disabled ? disabledReason : undefined}

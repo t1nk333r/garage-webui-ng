@@ -68,7 +68,7 @@ const ManageBucketPage = () => {
                   onClick={() => copyToClipboard(`s3://${name}`)}
                 >
                   <Copy size={16} />
-                  Copy URL
+                  Copy S3 URI
                 </button>
                 <MenuButton />
               </>
