@@ -1,0 +1,198 @@
+#!/usr/bin/env bash
+# garage-update-remote — run garage-update on the machine that hosts Garage and
+# WebUI-NG from a workstation: over SSH, or inside a Proxmox container through
+# its host (`pct exec`). Every run first brings the target's garage-update in
+# step with this checkout, and `gui --build` builds WebUI-NG from this checkout
+# and installs that build.
+#
+# The target is configured outside the repository, in
+# ${XDG_CONFIG_HOME:-~/.config}/garage-update/remote.env:
+#   GARAGE_UPDATE_HOST=root@pve.example        # SSH destination
+#   GARAGE_UPDATE_CTID=210                     # Proxmox container ID; omit for a plain host
+#   GARAGE_UPDATE_SSH_OPTS="-i $HOME/.ssh/id_ed25519"
+#
+# Remote command lines are assembled here on purpose, every argument %q-quoted
+# for the remote shell (SC2029); `$?` and `$rc` in them belong to that shell
+# (SC2016).
+# shellcheck disable=SC2029,SC2016
+set -Eeuo pipefail
+
+readonly PROG=garage-update-remote
+HERE=$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd)
+REPO=$(cd -- "$HERE/../.." && pwd)
+TOOL=$HERE/garage-update
+REMOTE_TOOL=/usr/local/sbin/garage-update
+CONF=${GARAGE_UPDATE_REMOTE_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/garage-update/remote.env}
+
+usage() {
+	cat <<EOF
+Usage: $PROG [command] [options]
+
+  status | core [VERSION] | gui [VERSION] | all
+                      run garage-update on the target with these arguments
+                      (options: garage-update --help)
+  gui --build [REF]   build WebUI-NG from this checkout at REF (default HEAD,
+                      committed changes only) and install that build
+  install             only install or refresh garage-update on the target
+
+Every command first makes sure the target runs this checkout's garage-update.
+Target settings: $CONF
+EOF
+}
+
+step() { printf '==> %s\n' "$*"; }
+warn() { printf '%s: %s\n' "$PROG" "$*" >&2; }
+die() {
+	warn "$*"
+	exit 1
+}
+
+CTL_DIR='' BUILD_DIR='' REMOTE_STAGE=''
+
+cleanup() {
+	if [[ -n $REMOTE_STAGE ]]; then rsh rm -rf -- "$REMOTE_STAGE" || true; fi
+	if [[ -n $CTL_DIR ]]; then
+		ssh -o ControlPath="$CTL_DIR/ctl" -O exit "$GARAGE_UPDATE_HOST" 2>/dev/null || true
+		rm -rf -- "$CTL_DIR"
+	fi
+	if [[ -n $BUILD_DIR ]]; then
+		git -C "$REPO" worktree remove --force "$BUILD_DIR/src" 2>/dev/null || true
+		rm -rf -- "$BUILD_DIR"
+	fi
+}
+
+# rsh [-t] command args...: run on the target. Each argument is quoted for the
+# remote shell, so paths and versions arrive intact. -t asks for a terminal
+# when this side has one, so garage-update can ask for confirmation.
+rsh() {
+	local tty=(-n) cmd
+	if [[ $1 == -t ]]; then
+		shift
+		if [[ -t 0 && -t 1 ]]; then tty=(-t); else tty=(); fi
+	fi
+	printf -v cmd '%q ' "$@"
+	if [[ -n $CTID ]]; then cmd="pct exec $(printf %q "$CTID") -- $cmd"; fi
+	ssh "${SSH_OPTS[@]}" "${tty[@]}" "$GARAGE_UPDATE_HOST" "$cmd"
+}
+
+# rpush local remote-path mode: copy a file onto the target, then move it into
+# place in one step.
+rpush() {
+	local src=$1 dst=$2 mode=$3 stage
+	if [[ -n $CTID ]]; then
+		stage=$(ssh -n "${SSH_OPTS[@]}" "$GARAGE_UPDATE_HOST" mktemp)
+		# One remote command uploads, pushes into the container and always
+		# removes the staging file on the host, whatever fails.
+		ssh "${SSH_OPTS[@]}" "$GARAGE_UPDATE_HOST" "$(printf 'cat > %q && pct push %q %q %q --perms %q; rc=$?; rm -f %q; exit $rc' \
+			"$stage" "$CTID" "$stage" "$dst.new" "$mode" "$stage")" <"$src"
+	else
+		ssh "${SSH_OPTS[@]}" "$GARAGE_UPDATE_HOST" "$(printf 'cat > %q && chmod %q %q' "$dst.new" "$mode" "$dst.new")" <"$src"
+	fi
+	rsh mv -f -- "$dst.new" "$dst"
+}
+
+ensure_tool() {
+	local want have verb=Installing
+	want=$(sha256sum -- "$TOOL" | cut -d' ' -f1)
+	have=$(rsh sha256sum -- "$REMOTE_TOOL" 2>/dev/null | cut -d' ' -f1) || have=''
+	[[ $have == "$want" ]] && return 0
+	if [[ -n $have ]]; then verb=Updating; fi
+	step "$verb $REMOTE_TOOL on the target"
+	rpush "$TOOL" "$REMOTE_TOOL" 0755
+}
+
+build_webui() { # ref goarch -> sets BUILT
+	local ref=$1 goarch=$2 gover c
+	gover=$(sed -nE '/^FROM .*golang:[0-9.]+-alpine/{s/.*golang:([0-9.]+)-alpine.*/\1/p;q}' "$REPO/Dockerfile")
+	[[ -n $gover ]] || die "cannot find the Go toolchain pin in $REPO/Dockerfile"
+	for c in git pnpm go make; do
+		command -v "$c" >/dev/null || die "building needs $c"
+	done
+	if [[ -n $(git -C "$REPO" status --porcelain) ]]; then
+		warn "this checkout has uncommitted changes; the build uses $ref only"
+	fi
+	BUILD_DIR=$(mktemp -d)
+	git -C "$REPO" worktree add --detach --quiet "$BUILD_DIR/src" "$ref"
+	step "Building WebUI-NG $(git -C "$BUILD_DIR/src" describe --tags --always) for linux/$goarch (Go $gover)"
+	(
+		cd "$BUILD_DIR/src"
+		pnpm install --frozen-lockfile --reporter=silent
+		pnpm run build
+		rm -rf backend/ui/dist
+		cp -r dist backend/ui/dist
+		cd backend
+		GOTOOLCHAIN="go$gover" GOOS=linux GOARCH="$goarch" make build
+	)
+	BUILT=$BUILD_DIR/src/backend/main
+}
+
+gui_build() { # [--build [REF]] and garage-update options, in any order
+	local ref=HEAD args=() arch goarch sha rc=0
+	while (($#)); do
+		case $1 in
+		--build)
+			if [[ -n ${2:-} && $2 != -* ]]; then
+				ref=$2
+				shift
+			fi
+			;;
+		*) args+=("$1") ;;
+		esac
+		shift
+	done
+	arch=$(rsh uname -m)
+	case $arch in
+	x86_64) goarch=amd64 ;;
+	aarch64 | arm64) goarch=arm64 ;;
+	*) die "no build target for the target's architecture $arch" ;;
+	esac
+	build_webui "$ref" "$goarch"
+	sha=$(sha256sum -- "$BUILT" | cut -d' ' -f1)
+	REMOTE_STAGE=$(rsh mktemp -d)
+	step "Copying the build to the target"
+	rpush "$BUILT" "$REMOTE_STAGE/garage-webui-ng" 0755
+	rsh -t "$REMOTE_TOOL" gui --file "$REMOTE_STAGE/garage-webui-ng" --sha256 "$sha" "${args[@]}" || rc=$?
+	return "$rc"
+}
+
+main() {
+	case ${1:-} in -h | --help | help)
+		usage
+		return 0
+		;;
+	esac
+	if [[ -f $CONF ]]; then
+		# shellcheck source=/dev/null
+		. "$CONF"
+	fi
+	[[ -n ${GARAGE_UPDATE_HOST:-} ]] ||
+		die "no target configured: set GARAGE_UPDATE_HOST (plus GARAGE_UPDATE_CTID for a Proxmox container) in $CONF"
+	CTID=${GARAGE_UPDATE_CTID:-}
+	read -ra SSH_OPTS <<<"${GARAGE_UPDATE_SSH_OPTS:-}"
+	command -v ssh >/dev/null || die "ssh is required"
+
+	trap cleanup EXIT
+	trap 'exit 130' INT TERM HUP
+	# One SSH connection for the whole run: one handshake, at most one password prompt.
+	CTL_DIR=$(mktemp -d)
+	SSH_OPTS+=(-o ControlMaster=auto -o "ControlPath=$CTL_DIR/ctl" -o ControlPersist=300)
+
+	ensure_tool
+	case ${1:-status} in
+	install) printf '%s is current on the target.\n' "$REMOTE_TOOL" ;;
+	gui)
+		local a
+		for a in "$@"; do
+			if [[ $a == --build ]]; then
+				shift
+				gui_build "$@"
+				return
+			fi
+		done
+		rsh -t "$REMOTE_TOOL" "$@"
+		;;
+	*) rsh -t "$REMOTE_TOOL" "$@" ;;
+	esac
+}
+
+main "$@"

@@ -249,6 +249,12 @@ database file, so the two can coexist.
 | `cannot open user database … permission denied` | The `User=` cannot write the directory | `chown` it to that user |
 | Accounts vanish after a host rebuild | `DB_PATH` points somewhere ephemeral (`/tmp`, a tmpfs) | Move it under `/var/lib` |
 
+**Keeping a systemd install current.** Once this layout is in place,
+[`contrib/garage-update`](../contrib/garage-update/README.md) updates it — and
+Garage itself — in one command: it verifies the new binary before stopping
+anything, backs up the binary and its data, health-checks the new version and
+rolls back automatically if it does not come up.
+
 ---
 
 ### Verifying the migration
