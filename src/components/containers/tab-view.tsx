@@ -16,6 +16,7 @@ type Props = {
   name?: string;
   className?: string;
   contentClassName?: string;
+  variant?: "boxed" | "bordered";
 };
 
 const TabView = ({
@@ -23,6 +24,7 @@ const TabView = ({
   name = "tab",
   className,
   contentClassName,
+  variant = "boxed",
 }: Props) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const curTab = searchParams.get(name) || tabs[0].name;
@@ -35,7 +37,7 @@ const TabView = ({
   return (
     <>
       <Tabs
-        variant="boxed"
+        variant={variant}
         className={cn(
           "w-auto inline-flex flex-row items-stretch overflow-x-auto",
           className

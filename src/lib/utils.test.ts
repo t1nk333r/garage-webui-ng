@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readableBytes, ucfirst } from "@/lib/utils";
+import { formatCount, readableBytes, ucfirst } from "@/lib/utils";
 
 describe("ucfirst", () => {
   it("capitalizes the first character", () => {
@@ -54,5 +54,21 @@ describe("readableBytes", () => {
   // only. Un-skip when the sizes array is extended.
   it.skip("formats petabyte-scale values", () => {
     expect(readableBytes(1024 ** 5)).toBe("1.0 PB");
+  });
+});
+
+describe("formatCount", () => {
+  it("leaves small counts as they are", () => {
+    expect(formatCount(7)).toBe("7");
+  });
+
+  it("abbreviates thousands and millions to one decimal", () => {
+    expect(formatCount(1234)).toBe("1.2K");
+    expect(formatCount(3_000_000)).toBe("3M");
+  });
+
+  it("returns n/a for a missing count", () => {
+    expect(formatCount(undefined)).toBe("n/a");
+    expect(formatCount(null)).toBe("n/a");
   });
 });

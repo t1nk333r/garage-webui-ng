@@ -1,8 +1,11 @@
 import TabView, { Tab } from "@/components/containers/tab-view";
 import Page from "@/context/page-context";
-import { InfoIcon, UserIcon, UsersIcon } from "lucide-react";
+import { InfoIcon, PaletteIcon, UserIcon, UsersIcon } from "lucide-react";
+import { useStore } from "zustand";
+import appStore from "@/stores/app-store";
 import AboutTab from "./about-tab";
 import AccountTab from "./account-tab";
+import AppearanceTab from "./appearance-tab";
 import UsersTab from "./users-tab";
 
 // One entry per settings section. TabView keys the visible tab off the `tab`
@@ -26,6 +29,12 @@ const tabs: Tab[] = [
     Component: UsersTab,
   },
   {
+    name: "appearance",
+    title: "Appearance",
+    icon: PaletteIcon,
+    Component: AppearanceTab,
+  },
+  {
     name: "about",
     title: "About",
     icon: InfoIcon,
@@ -34,12 +43,18 @@ const tabs: Tab[] = [
 ];
 
 const SettingsPage = () => {
+  const isModern = useStore(appStore, (s) => s.uiStyle) === "modern";
+
   return (
     <>
       <Page title="Settings" />
 
       <div className="container">
-        <TabView tabs={tabs} className="bg-base-100 h-14 px-1.5" />
+        {isModern ? (
+          <TabView tabs={tabs} variant="bordered" contentClassName="mt-5" />
+        ) : (
+          <TabView tabs={tabs} className="bg-base-100 h-14 px-1.5" />
+        )}
       </div>
     </>
   );

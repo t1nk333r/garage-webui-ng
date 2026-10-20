@@ -1,4 +1,5 @@
 import { useConfig } from "@/hooks/useConfig";
+import { PROJECT_URL } from "@/lib/consts";
 import { copyToClipboard, handleError } from "@/lib/utils";
 import Button from "@/components/ui/button";
 import Checkbox from "@/components/ui/checkbox";
@@ -59,6 +60,38 @@ const AboutTab = () => {
           </div>
           <div className="flex-1 truncate">
             <p className="truncate">{config?.version ?? "unknown"}</p>
+          </div>
+        </div>
+
+        <div className="flex flex-row items-start gap-3 text-left text-sm">
+          <div className="shrink-0 w-1/3 max-w-[200px]">
+            <p className="text-base-content/80">Project</p>
+          </div>
+          <div className="flex-1 truncate">
+            <a
+              href={PROJECT_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="link truncate"
+            >
+              {PROJECT_URL.replace(/^https:\/\//, "")}
+            </a>
+          </div>
+        </div>
+
+        <div className="flex flex-row items-start gap-3 text-left text-sm">
+          <div className="shrink-0 w-1/3 max-w-[200px]">
+            <p className="text-base-content/80">Releases</p>
+          </div>
+          <div className="flex-1 truncate">
+            <a
+              href={`${PROJECT_URL}/releases`}
+              target="_blank"
+              rel="noreferrer"
+              className="link truncate"
+            >
+              {`${PROJECT_URL.replace(/^https:\/\//, "")}/releases`}
+            </a>
           </div>
         </div>
 

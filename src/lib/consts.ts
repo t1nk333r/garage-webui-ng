@@ -25,3 +25,9 @@ export const BASE_PATH =
   (import.meta.env.PROD ? readBasePath() : "") ||
   import.meta.env.VITE_BASE_PATH ||
   "";
+
+/**
+ * The project's home. Keep in step with releasesURL / assetDownloadURL in
+ * backend/router — the update check and self-update read releases from here.
+ */
+export const PROJECT_URL = "https://github.com/t1nk333r/garage-webui-ng";

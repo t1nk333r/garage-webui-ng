@@ -9,11 +9,15 @@ import Button from "../ui/button";
 import { useDisclosure } from "@/hooks/useDisclosure";
 import { Drawer } from "react-daisyui";
 import { useAuth } from "@/hooks/useAuth";
+import { useStore } from "zustand";
+import appStore from "@/stores/app-store";
+import ModernLayout from "../modern/modern-layout";
 
 const MainLayout = () => {
   const sidebar = useDisclosure();
   const { pathname } = useLocation();
   const auth = useAuth();
+  const uiStyle = useStore(appStore, (s) => s.uiStyle);
 
   useEffect(() => {
     if (sidebar.isOpen) {
@@ -33,6 +37,10 @@ const MainLayout = () => {
 
   if (!auth.isAuthenticated) {
     return <Navigate to="/auth/login" />;
+  }
+
+  if (uiStyle === "modern") {
+    return <ModernLayout sidebar={sidebar} />;
   }
 
   return (

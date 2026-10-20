@@ -77,7 +77,12 @@ func TestBucketInfoConcurrencyIsBounded(t *testing.T) {
 		case strings.HasPrefix(r.URL.Path, "/v2/ListBuckets"):
 			res := make([]schema.GetBucketsRes, totalBuckets)
 			for i := range res {
-				res[i] = schema.GetBucketsRes{ID: ids[i], GlobalAliases: aliases[i]}
+				res[i] = schema.GetBucketsRes{
+					ID:            ids[i],
+					GlobalAliases: aliases[i],
+					LocalAliases:  []schema.LocalAlias{{AccessKeyID: "GK-" + ids[i], Alias: "local-" + ids[i]}},
+					Created:       "listed-" + ids[i],
+				}
 			}
 			_ = json.NewEncoder(w).Encode(res)
 
@@ -183,7 +188,12 @@ func TestBucketInfoConcurrencyIsBounded(t *testing.T) {
 	if len(fb.GlobalAliases) != 1 || fb.GlobalAliases[0] != aliases[failIndex][0] {
 		t.Errorf("fallback bucket GlobalAliases = %v, want %v", fb.GlobalAliases, aliases[failIndex])
 	}
-	if fb.Created != "" {
-		t.Errorf("fallback bucket Created = %q, want empty (proves this came from the ListBuckets fallback, not a real GetBucketInfo response)", fb.Created)
+	// GetBucketInfo would have answered "created-<id>"; "listed-<id>" proves
+	// this came from the ListBuckets fallback and that the fallback keeps it.
+	if want := "listed-" + ids[failIndex]; fb.Created != want {
+		t.Errorf("fallback bucket Created = %q, want %q", fb.Created, want)
+	}
+	if len(fb.LocalAliases) != 1 || fb.LocalAliases[0].Alias != "local-"+ids[failIndex] {
+		t.Errorf("fallback bucket LocalAliases = %v, want the alias from ListBuckets", fb.LocalAliases)
 	}
 }

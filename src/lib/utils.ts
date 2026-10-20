@@ -25,6 +25,15 @@ export const readableBytes = (bytes?: number | null, divider = 1024) => {
   return `${(bytes / Math.pow(divider, i)).toFixed(1)} ${sizes[i]}`;
 };
 
+const compactCount = new Intl.NumberFormat("en", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
+/** A count for tight spaces: 1234567 → "1.2M". Pair it with the full value. */
+export const formatCount = (count?: number | null) =>
+  count == null || Number.isNaN(count) ? "n/a" : compactCount.format(count);
+
 export const handleError = (err: unknown) => {
   toast.error((err as Error)?.message || "Unknown error");
 };

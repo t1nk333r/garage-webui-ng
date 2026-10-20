@@ -27,14 +27,14 @@ Point it at a running Garage node and you get a clean dashboard for cluster heal
 
 ## ✨ Key Features
 
-- **📊 Live dashboard** — cluster health, node/partition status, total usage, and a live metrics panel (S3 requests, errors, block I/O) parsed from Garage's Prometheus endpoint.
+- **📊 Live dashboard** — cluster health, node/partition status, storage usage per bucket (chart and ranked breakdown), recently created buckets, and a live metrics panel (S3 requests, errors, block I/O) parsed from Garage's Prometheus endpoint.
 - **🗂️ Bucket management** — create, inspect, and configure buckets: global/local aliases, quotas, and **static website hosting** with a correct, copy-ready public URL.
 - **📁 Object browser** — navigate prefixes, upload and download objects, create folders, **bulk-delete** selections, and clean up orphaned **multipart uploads**.
 - **🔗 Object sharing** — generate expiring **presigned links** for private objects and surface public website URLs, all from one dialog.
 - **🔑 Access keys** — create, inspect, and assign keys to buckets with fine-grained read / write / owner permissions.
 - **🔐 Users & roles** — a **first-run setup wizard**, in-app user management (**Settings → Users**), admin / fail-closed read-only **viewer** roles, self-service password change, and CSRF-protected sessions. No hand-edited environment variables. See [`docs/authentication.md`](docs/authentication.md).
 - **📝 Audit log** — every state-changing request is emitted as a structured JSON line to stdout (who / what / path / status), including denied writes.
-- **🎨 Themed UI** — 10 built-in light/dark themes, fully responsive down to mobile.
+- **🎨 Themed UI** — a modern layout (grouped sidebar, breadcrumbs, sortable bucket table) with the original **classic** layout one click away, and 11 light/dark themes defaulting to **Dark Pastel**; every theme shares pastel's rounded controls. Both choices live in **Settings → Appearance** and are stored per browser. Fully responsive down to mobile.
 - **🚀 Production-ready** — multi-arch (amd64/arm64) image, non-root runtime, healthcheck, graceful shutdown, and GHCR publishing out of the box.
 
 ## 📸 Screenshots
@@ -244,6 +244,7 @@ Garage WebUI-NG reads your `garage.toml` and lets every setting be overridden by
 4. Under **Buckets**, create a bucket, assign an alias, set quotas, or enable website hosting.
 5. Open a bucket's **Browse** tab to manage objects; use **Keys** to mint and assign access keys.
 6. Add colleagues in **Settings → Users** (admin or read-only viewer); change your own password in **Settings → Account**.
+7. Pick a theme, or switch between the modern and classic layouts, in **Settings → Appearance** (or the palette menu). **Settings → About** shows the running version and links to the [project](https://github.com/t1nk333r/garage-webui-ng) and its releases.
 
 ### Importing / Exporting
 
@@ -447,9 +448,10 @@ CI and releases run on a self-hosted Jenkins rather than GitHub Actions — the 
 
 ## 📄 License
 
-Released under the [MIT License](LICENSE). Garage WebUI-NG is a next-generation fork; the original copyright is retained below.
+Released under the [MIT License](LICENSE). Garage WebUI-NG is a next-generation fork; the original copyright is retained below. Material adapted from other projects is listed, with its license, in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ## 🙏 Acknowledgements
 
 - **[Garage](https://garagehq.deuxfleurs.fr/)** by [Deuxfleurs](https://deuxfleurs.fr/) — the object storage engine this UI operates.
 - **[garage-webui](https://github.com/khairul169/garage-webui)** by **Khairul Hidayat** (© 2024) — the original project this "-NG" edition builds upon, under the MIT License.
+- **[garage-ui](https://github.com/Noooste/garage-ui)** by **Noste** (© 2025) — the modern layout, dashboard and bucket table are adapted from its design and parts of its frontend code, under the MIT License.

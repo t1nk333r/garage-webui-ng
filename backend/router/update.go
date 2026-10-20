@@ -20,7 +20,13 @@ import (
 // (UPDATE_CHECK_ENABLED=true) and the URL is a package-level var only so tests
 // can point it at an httptest server — never built from user input, and never
 // proxied on a caller's behalf.
-var releasesURL = "https://api.github.com/repos/d7eeem/garage-webui-ng/releases/latest"
+var releasesURL = "https://api.github.com/repos/" + projectRepo + "/releases/latest"
+
+// projectRepo is the GitHub owner/name that releases are published under. The
+// Go module path still says d7eeem, but that account no longer exists: its
+// URLs only resolve through a redirect that ends the day someone else claims
+// the name. Keep in step with PROJECT_URL in src/lib/consts.ts.
+const projectRepo = "t1nk333r/garage-webui-ng"
 
 // updateCacheKey namespaces this handler's entry in utils.Cache.
 const updateCacheKey = "update-check"

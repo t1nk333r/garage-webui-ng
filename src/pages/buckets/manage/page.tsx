@@ -3,9 +3,12 @@ import { useBucket } from "./hooks";
 import Page from "@/context/page-context";
 import TabView, { Tab } from "@/components/containers/tab-view";
 import {
+  ArchiveIcon,
   ChartLine,
   CircleXIcon,
+  Copy,
   FolderSearch,
+  Globe,
   LockKeyhole,
 } from "lucide-react";
 import OverviewTab from "./overview/overview-tab";
@@ -14,6 +17,10 @@ import MenuButton from "./components/menu-button";
 import BrowseTab from "./browse/browse-tab";
 import { BucketContext } from "./context";
 import { Alert, Loading } from "react-daisyui";
+import { useStore } from "zustand";
+import appStore from "@/stores/app-store";
+import { copyToClipboard, formatCount, readableBytes } from "@/lib/utils";
+import { Bucket } from "../types";
 
 const tabs: Tab[] = [
   {
@@ -39,6 +46,7 @@ const tabs: Tab[] = [
 const ManageBucketPage = () => {
   const { id } = useParams();
   const { data, error, isLoading, refetch } = useBucket(id);
+  const isModern = useStore(appStore, (s) => s.uiStyle) === "modern";
 
   const name = data?.globalAliases?.[0];
   const hasAlias = !!name;
@@ -48,7 +56,27 @@ const ManageBucketPage = () => {
       <Page
         title={name || "Manage Bucket"}
         prev="/buckets"
-        actions={data ? <MenuButton /> : undefined}
+        icon={isModern ? ArchiveIcon : undefined}
+        subtitle={isModern && data ? <BucketSummary bucket={data} /> : undefined}
+        actions={
+          data ? (
+            isModern && name ? (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => copyToClipboard(`s3://${name}`)}
+                >
+                  <Copy size={16} />
+                  Copy S3 URI
+                </button>
+                <MenuButton />
+              </>
+            ) : (
+              <MenuButton />
+            )
+          ) : undefined
+        }
       />
 
       {isLoading && (
@@ -81,11 +109,42 @@ const ManageBucketPage = () => {
           <BucketContext.Provider
             value={{ bucket: data, refetch, bucketName: name || "" }}
           >
-            <TabView tabs={tabs} className="bg-base-100 h-14 px-1.5" />
+            {isModern ? (
+              <TabView tabs={tabs} variant="bordered" contentClassName="mt-5" />
+            ) : (
+              <TabView tabs={tabs} className="bg-base-100 h-14 px-1.5" />
+            )}
           </BucketContext.Provider>
         </div>
       )}
     </>
+  );
+};
+
+/** The modern page header's line under the bucket name. */
+const BucketSummary = ({ bucket }: { bucket: Bucket }) => {
+  const name = bucket.globalAliases?.[0];
+
+  return (
+    <div className="space-y-2">
+      {name ? (
+        <p className="truncate font-mono text-[13px]">s3://{name}</p>
+      ) : (
+        <p className="italic">No global alias</p>
+      )}
+      <div className="flex flex-wrap gap-1.5">
+        <span className="badge badge-outline border-base-300" title={bucket.objects?.toLocaleString()}>
+          {formatCount(bucket.objects)} {bucket.objects === 1 ? "object" : "objects"}
+        </span>
+        <span className="badge badge-outline border-base-300">{readableBytes(bucket.bytes)}</span>
+        {bucket.websiteAccess ? (
+          <span className="badge badge-outline gap-1 border-base-300">
+            <Globe size={12} />
+            Website
+          </span>
+        ) : null}
+      </div>
+    </div>
   );
 };
 
