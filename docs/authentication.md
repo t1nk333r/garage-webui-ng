@@ -500,7 +500,7 @@ sudo -u garage-webui DB_PATH=/var/lib/garage-webui-ng/garage-webui-ng.db \
 
 # Docker — -it is required, otherwise there is no terminal to prompt on.
 docker run -it --rm -v garage-webui-ng_webui_data:/data \
-  --entrypoint /main ghcr.io/d7eeem/garage-webui-ng:latest -reset-password admin
+  --entrypoint /main ghcr.io/t1nk333r/garage-webui-ng:latest -reset-password admin
 
 # ...or against the running container.
 docker compose exec webui /main -list-users

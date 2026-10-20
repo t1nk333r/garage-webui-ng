@@ -87,7 +87,7 @@ func TestUpdateGetEnabledNewerTag(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(githubRelease{
 			TagName: "v3.4.0",
-			HTMLURL: "https://github.com/d7eeem/garage-webui-ng/releases/tag/v3.4.0",
+			HTMLURL: "https://github.com/t1nk333r/garage-webui-ng/releases/tag/v3.4.0",
 		})
 	}))
 	defer server.Close()

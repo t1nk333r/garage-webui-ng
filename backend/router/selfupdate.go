@@ -57,7 +57,7 @@ var updateInFlight atomic.Bool
 // like releasesURL, so tests can point it at an httptest server without a
 // real network call.
 var assetDownloadURL = func(tag, name string) string {
-	return "https://github.com/d7eeem/garage-webui-ng/releases/download/" + tag + "/" + name
+	return "https://github.com/" + projectRepo + "/releases/download/" + tag + "/" + name
 }
 
 // assetName is the release asset this build should install.

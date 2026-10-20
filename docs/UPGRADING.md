@@ -51,7 +51,7 @@ start, then remove them.
 ```yaml
 services:
   webui:
-    image: ghcr.io/d7eeem/garage-webui-ng:latest
+    image: ghcr.io/t1nk333r/garage-webui-ng:latest
     volumes:
       - ./garage.toml:/etc/garage.toml:ro
       # The user database. Without this, every container recreation wipes
@@ -172,7 +172,7 @@ check your architecture with `uname -m` (`x86_64` → amd64, `aarch64` → arm64
 ```bash
 ARCH=amd64   # or arm64
 curl -fsSL -o /tmp/garage-webui-ng \
-  "https://github.com/d7eeem/garage-webui-ng/releases/latest/download/garage-webui-ng-linux-${ARCH}"
+  "https://github.com/t1nk333r/garage-webui-ng/releases/latest/download/garage-webui-ng-linux-${ARCH}"
 sudo install -m755 /tmp/garage-webui-ng /usr/local/bin/garage-webui-ng
 ```
 
@@ -287,7 +287,7 @@ mounted where you think it is.
 The change is forward-only in one direction: the new release never writes to the
 environment variables, and the old release never reads the database.
 
-1. Pin the previous image tag (`ghcr.io/d7eeem/garage-webui-ng:<old-tag>`) and
+1. Pin the previous image tag (`ghcr.io/t1nk333r/garage-webui-ng:<old-tag>`) and
    recreate the container.
 2. The old release reads `AUTH_USER_PASS` live, so **keep those variables set
    until you are confident in the upgrade** — that is the only reason to delay
@@ -305,7 +305,7 @@ name: garage-webui-ng
 
 services:
   webui:
-    image: ghcr.io/d7eeem/garage-webui-ng:latest
+    image: ghcr.io/t1nk333r/garage-webui-ng:latest
     container_name: garage-webui-ng
     restart: unless-stopped
     volumes:
