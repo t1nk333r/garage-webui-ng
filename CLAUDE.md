@@ -103,6 +103,14 @@ out here, so an agent working nearby doesn't fly blind:
   pastel's shape tokens; a new dark theme must also join `darkThemes`
   (`src/app/themes.ts`) or charts use the light palette. The persisted store is
   versioned — change its shape through `migrateAppState`, never in place.
+- **Host updater.** `contrib/garage-update/` is plain bash with no build step:
+  `garage-update` updates Garage and WebUI-NG on a systemd binary install
+  (verify → back up → swap → health check → automatic rollback) and
+  `garage-update-remote` drives it from a workstation, including building the
+  UI from a checkout. It verifies releases with its own copy of the release
+  key, `WEBUI_PUBKEY`; `TestUpdateScriptPublicKey` in
+  `backend/release_key_test.go` fails when that drifts from `release_key.go`.
+  Run `shellcheck` on both scripts after editing them.
 - **Release signing.** `backend/cmd/relsign` (sign/verify/keygen, stdlib
   crypto only) and `backend/release_key.go` (the compiled-in public key) back
   a `SHA256SUMS` + `SHA256SUMS.sig` pair produced for every tagged release.

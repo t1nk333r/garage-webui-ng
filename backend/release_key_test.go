@@ -3,6 +3,10 @@ package main
 import (
 	"crypto/ed25519"
 	"encoding/hex"
+	"errors"
+	"io/fs"
+	"os"
+	"regexp"
 	"testing"
 )
 
@@ -46,5 +50,28 @@ func TestReleasePublicKeyShape(t *testing.T) {
 	}
 	if len(b) != ed25519.PublicKeySize {
 		t.Fatalf("releasePublicKey decodes to %d bytes, want %d (ed25519.PublicKeySize)", len(b), ed25519.PublicKeySize)
+	}
+}
+
+// TestUpdateScriptPublicKey keeps contrib/garage-update in lockstep with the
+// compiled-in key. That script verifies release signatures on its own, with no
+// Go binary involved, so a rotated key that is not copied there would make
+// every scripted update refuse a genuine release.
+func TestUpdateScriptPublicKey(t *testing.T) {
+	const path = "../contrib/garage-update/garage-update"
+	script, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		t.Skip(path + " is not part of this checkout")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := regexp.MustCompile(`(?m)^WEBUI_PUBKEY=([0-9a-fA-F]*)$`).FindSubmatch(script)
+	if m == nil {
+		t.Fatalf("%s has no WEBUI_PUBKEY= line", path)
+	}
+	if got := string(m[1]); got != releasePublicKey {
+		t.Errorf("WEBUI_PUBKEY in %s is %q; release_key.go has %q", path, got, releasePublicKey)
 	}
 }

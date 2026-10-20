@@ -1,0 +1,886 @@
+#!/usr/bin/env bash
+# garage-update — update Garage (the "core") and Garage WebUI-NG (the "gui") on
+# a host that runs both as systemd services from plain binaries: the layout of
+# "Path C" in docs/UPGRADING.md.
+#
+# Every update is checked before anything stops (Garage: the official release
+# index, the exact byte size and the binary's own version; WebUI-NG: the
+# ed25519-signed SHA256SUMS of the GitHub release). The old binary and its data
+# are copied aside while the service is stopped, and the new version has to
+# come up healthy, or both are put back automatically.
+#
+# Settings: /etc/garage-update.conf (shell syntax, owned by root, not writable
+# by others) overrides the defaults below. `garage-update --help` for usage;
+# contrib/garage-update/README.md for the details.
+set -Eeuo pipefail
+umask 077
+
+readonly PROG=garage-update
+CONF=${GARAGE_UPDATE_CONF:-/etc/garage-update.conf}
+
+# --- defaults (override in $CONF) ---------------------------------------------
+GARAGE_BIN=/usr/local/bin/garage
+GARAGE_CONFIG=/etc/garage.toml
+GARAGE_SERVICE=garage.service
+GARAGE_ADMIN_URL=        # empty: http://127.0.0.1:<port of [admin] api_bind_addr>
+GARAGE_ADMIN_TOKEN_FILE= # empty: admin_token / admin_token_file from $GARAGE_CONFIG
+GARAGE_PLATFORM=         # empty: derived from `uname -m`
+GARAGE_RELEASES_URL=https://garagehq.deuxfleurs.fr/_releases.json
+
+WEBUI_BIN=/usr/local/bin/garage-webui-ng
+WEBUI_SERVICE=garage-webui.service
+WEBUI_URL=      # empty: http://<HOST>:<PORT><BASE_PATH> from the service environment
+WEBUI_DB=       # empty: DB_PATH from the service environment (the user database)
+WEBUI_REPO=t1nk333r/garage-webui-ng
+# The release-signing public key. It must equal backend/release_key.go; a Go
+# test (release_key_test.go) fails the build when the two drift apart.
+WEBUI_PUBKEY=583b78627fef1679b5844a39aefa9556cf61903f1b45949f54e8b7ff89f7f513
+
+BACKUP_DIR=/root/upgrade-backups
+KEEP_BACKUPS=3 # per component; only backups this tool made are ever pruned
+CORE_HEALTH_TIMEOUT=90
+WEBUI_HEALTH_TIMEOUT=45
+LOCK_FILE=/run/lock/garage-update.lock
+SYSTEMCTL=systemctl   # "systemctl --user" (and "journalctl --user") to rehearse
+JOURNALCTL=journalctl # against user units instead of the real services
+
+usage() {
+	cat <<EOF
+Usage: $PROG [command] [options]
+
+Commands:
+  status               installed and latest versions, service health (default)
+  core [VERSION]       update Garage to VERSION (default: latest release)
+  gui [VERSION]        update Garage WebUI-NG to a GitHub release (default: latest)
+  all                  core, then gui, each to its latest release
+
+Options:
+  --file PATH          core/gui: install this binary instead of downloading one
+  --sha256 HEX         with --file: refuse the file unless it has this SHA-256
+  -n, --dry-run        download and verify everything, then stop: change nothing
+  -y, --yes            do not ask for confirmation (required without a terminal)
+      --force          allow a reinstall, a downgrade, a major Garage upgrade,
+                       or updating a service that is currently unhealthy
+  -h, --help           this help
+
+Exit status: 0 done or nothing to do, 1 failed before anything changed,
+2 usage error, 3 failed and rolled back, 4 failed and the rollback failed too.
+Settings: $CONF (see contrib/garage-update/README.md).
+EOF
+}
+
+say() { printf '%s\n' "$*"; }
+step() { printf '==> %s\n' "$*"; }
+warn() { printf '%s: %s\n' "$PROG" "$*" >&2; }
+die() {
+	warn "$*"
+	exit 1
+}
+syslog() { if command -v logger >/dev/null; then logger -t "$PROG" -- "$*" || true; fi; }
+sc() { "${SYSTEMCTL_CMD[@]}" "$@"; }
+jc() { "${JOURNALCTL_CMD[@]}" "$@"; }
+
+# JSON, TOML and version handling, kept in one small Python program rather
+# than spread over sed. Nothing here prints a secret: the admin token is
+# written straight into a mode-0600 header file for curl.
+read -r -d '' PY <<'PYEOF' || true
+import json, os, re, shlex, sys
+
+def vparse(v):
+    m = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)(?:-((?:alpha|beta|rc)\.?\d*)|-(\d+)-g[0-9a-f]+)?(?:-dirty)?", v.strip())
+    if m is None:
+        return None
+    base = tuple(int(x) for x in m.group(1, 2, 3))
+    if m.group(4):
+        return base + (0, m.group(4))           # a pre-release comes before its release
+    return base + (1, int(m.group(5) or 0))     # git describe: N commits after the tag
+
+def load(path):
+    with open(path) as f:
+        return json.load(f)
+
+def cmd_check():
+    import tomllib  # noqa: F401 (Python 3.11+)
+
+def cmd_vercmp(a, b):
+    pa, pb = vparse(a), vparse(b)
+    print("?" if pa is None or pb is None else (pa > pb) - (pa < pb))
+
+def cmd_major(v):
+    p = vparse(v)
+    print("?" if p is None else p[0])
+
+def cmd_garage_release(path, platform, want):
+    channels = load(path)
+    release = next((c for c in channels if c.get("name") == "Release"), None)
+    if release is None:
+        sys.exit("the release index has no Release channel")
+    found = []
+    for rel in release.get("builds", []):
+        p = vparse(rel.get("version", ""))
+        if p is None or (want and p != vparse(want)) or (not want and p[3] == 0):
+            continue
+        for b in rel.get("builds", []):
+            if b.get("platform") == platform and b.get("binary") == "garage":
+                found.append((p, rel["version"], b["url"], int(b["size"])))
+    if not found:
+        sys.exit(f"no Garage {want or 'release'} build for {platform} in the release index")
+    _, version, url, size = max(found)
+    if not url.startswith("https://"):
+        sys.exit(f"refusing a non-HTTPS download URL: {url}")
+    print(version, url, size)
+
+def cmd_toml(path, token_file, header_out):
+    import tomllib
+    with open(path, "rb") as f:
+        conf = tomllib.load(f)
+    admin = conf.get("admin", {})
+    token = admin.get("admin_token")
+    source = token_file or (None if token else admin.get("admin_token_file"))
+    if source:
+        with open(source) as f:
+            token = f.read().strip()
+    if token:
+        fd = os.open(header_out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write("Authorization: Bearer " + token + "\n")
+    port = re.search(r":(\d+)$", str(admin.get("api_bind_addr", "")))
+    print(conf.get("metadata_dir", ""))
+    print(port.group(1) if port else "")
+
+def cmd_json(path, *keys):
+    value = load(path)
+    for k in keys:
+        value = value[int(k)] if isinstance(value, list) else value[k]
+    print(value if isinstance(value, str) else json.dumps(value))
+
+def cmd_count(path):
+    value = load(path)
+    if not isinstance(value, list):
+        sys.exit("expected a JSON list")
+    print(len(value))
+
+def cmd_node_version(path):
+    nodes = list((load(path).get("success") or {}).values())
+    if len(nodes) != 1:
+        sys.exit("unexpected GetNodeInfo response")
+    print(nodes[0]["garageVersion"])
+
+def cmd_unit_env(environment, files, *keys):
+    # Environment= first, then EnvironmentFile= on top, as systemd applies them.
+    # Only the requested keys are printed: the files can hold passwords.
+    env = {}
+    try:
+        items = shlex.split(environment)
+    except ValueError:
+        items = environment.split()
+    for item in items:
+        k, sep, v = item.partition("=")
+        if sep:
+            env[k] = v
+    for line in files.splitlines():
+        path = line.split(" (", 1)[0].strip()
+        if not path:
+            continue
+        try:
+            with open(path) as f:
+                for raw in f:
+                    s = raw.strip()
+                    k, sep, v = s.partition("=")
+                    if not sep or s[0] in "#;":
+                        continue
+                    v = v.strip()
+                    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+                        v = v[1:-1]
+                    env[k.strip()] = v
+        except FileNotFoundError:
+            pass
+    for k in keys:
+        if k in env:
+            print(f"{k}={env[k]}")
+
+commands = {
+    "check": cmd_check, "vercmp": cmd_vercmp, "major": cmd_major,
+    "garage-release": cmd_garage_release, "toml": cmd_toml, "json": cmd_json,
+    "count": cmd_count, "node-version": cmd_node_version, "unit-env": cmd_unit_env,
+}
+commands[sys.argv[1]](*sys.argv[2:])
+PYEOF
+py() { python3 -I -c "$PY" "$@"; }
+
+# --- plumbing -----------------------------------------------------------------
+
+load_config() {
+	[[ -e $CONF ]] || return 0
+	local owner mode
+	read -r owner mode < <(stat -Lc '%u %a' -- "$CONF")
+	[[ $owner == "$EUID" ]] || die "$CONF must be owned by uid $EUID"
+	((8#$mode & 8#022)) && die "$CONF must not be writable by group or others"
+	# shellcheck source=/dev/null
+	. "$CONF"
+}
+
+WORK=
+NEW_FILES=()
+PHASE=idle # idle | stopped | swapped | done: what a failure has to undo
+ROLLBACK=  # core | gui
+BK=
+
+on_exit() {
+	local rc=$?
+	trap - EXIT
+	trap '' INT TERM HUP
+	if ((rc != 0)) && [[ $PHASE == stopped || $PHASE == swapped ]]; then
+		set +e
+		if "rollback_$ROLLBACK"; then rc=3; else rc=4; fi
+	fi
+	((${#NEW_FILES[@]})) && rm -f -- "${NEW_FILES[@]}"
+	[[ -n $WORK ]] && rm -rf -- "$WORK"
+	exit "$rc"
+}
+
+take_lock() {
+	mkdir -p -- "$(dirname -- "$LOCK_FILE")"
+	exec 9>"$LOCK_FILE"
+	flock -n 9 || die "another $PROG run holds $LOCK_FILE"
+}
+
+fetch() { # url file max-bytes max-seconds
+	curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 2 \
+		--max-filesize "$3" --max-time "$4" -o "$2" "$1"
+}
+
+http_status() { # url [curl args...] -> HTTP status, 000 when unreachable
+	local url=$1
+	shift
+	curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "$@" "$url" 2>/dev/null || true
+}
+
+http_get() { # file url [curl args...]: succeeds only on HTTP 200
+	local out=$1 url=$2 code
+	shift 2
+	code=$(curl -sS -o "$out" -w '%{http_code}' --max-time 10 "$@" "$url" 2>/dev/null) || true
+	[[ $code == 200 ]]
+}
+
+wait_for() { # seconds command...: poll every 2s until the command succeeds
+	local deadline=$((SECONDS + $1))
+	shift
+	until "$@"; do
+		((SECONDS < deadline)) || return 1
+		sleep 2
+	done
+}
+
+need_space() { # dir bytes: room for bytes plus a 64 MiB margin
+	local avail
+	avail=$(df -PB1 -- "$1" | awk 'NR == 2 { print $4 }')
+	((avail >= $2 + 67108864)) ||
+		die "not enough free space under $1: need $((($2 >> 20) + 64)) MiB, have $((avail >> 20)) MiB"
+}
+
+sha256_of() { sha256sum -- "$1" | awk '{ print $1 }'; }
+
+first_line() { printf '%s' "${1%%$'\n'*}"; }
+
+new_backup() { # kind from to -> prints a fresh directory (never reuses one)
+	local dir
+	dir="$BACKUP_DIR/$1-$2-to-$3-$(date -u +%Y%m%dT%H%M%SZ)"
+	mkdir -- "$dir"
+	printf '%s %s -> %s\n' "$1" "$2" "$3" >"$dir/.garage-update"
+	printf '%s' "$dir"
+}
+
+prune_backups() { # kind: keep the newest $KEEP_BACKUPS this tool made
+	local dir n=0
+	while IFS= read -r dir; do
+		n=$((n + 1))
+		((n > KEEP_BACKUPS)) || continue
+		[[ -f $dir/.garage-update ]] || continue
+		rm -rf -- "$dir"
+		say "Pruned old backup $dir"
+	done < <(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -name "$1-*" -printf '%T@ %p\n' |
+		sort -rn | cut -d' ' -f2-)
+}
+
+journal_clean() { # unit since-epoch: no panic logged by the unit since then
+	local out
+	out=$(jc -u "$1" --since "@$2" --no-pager -o cat 2>/dev/null) || return 0
+	! grep -Eq 'panicked at|^panic: |fatal error:' <<<"$out"
+}
+
+hex_to_file() { # hex file
+	local hex=${1//[$' \t\r\n']/}
+	[[ $hex =~ ^([0-9a-fA-F]{2})+$ ]] || return 1
+	# shellcheck disable=SC2001 # bash's own & replacement needs the 5.2 patsub_replacement option
+	printf '%b' "$(sed 's/../\\x&/g' <<<"$hex")" >"$2"
+}
+
+verify_signature() { # file sig-file: the hex ed25519 signature relsign writes
+	[[ $WEBUI_PUBKEY =~ ^[0-9a-fA-F]{64}$ ]] || die "WEBUI_PUBKEY is not a hex ed25519 public key"
+	# DER SubjectPublicKeyInfo prefix for a raw ed25519 key (RFC 8410).
+	hex_to_file "302a300506032b6570032100$WEBUI_PUBKEY" "$WORK/pub.der" || return 1
+	hex_to_file "$(<"$2")" "$WORK/sig.bin" || return 1
+	[[ $(stat -c %s -- "$WORK/sig.bin") == 64 ]] || return 1
+	openssl pkeyutl -verify -pubin -keyform DER -inkey "$WORK/pub.der" -rawin \
+		-in "$1" -sigfile "$WORK/sig.bin" >/dev/null 2>&1
+}
+
+# decide <installed> <target> <explicit 0|1> <major-guard 0|1>
+# Sets ACTION (none | update | blocked) and NOTE.
+decide() {
+	local installed=$1 target=$2 explicit=$3 guard=$4 cmp
+	if [[ -z $installed ]]; then
+		ACTION=blocked NOTE="the installed binary does not run; $PROG only updates a working install"
+		return
+	fi
+	cmp=$(py vercmp "$target" "$installed")
+	case $cmp in
+	0)
+		if ((FORCE)); then ACTION=update NOTE="reinstall $target"; else ACTION=none NOTE="up to date ($installed)"; fi
+		;;
+	1)
+		ACTION=update NOTE="$installed -> $target"
+		if ((guard && !FORCE)) && [[ $(py major "$target") != "$(py major "$installed")" ]]; then
+			ACTION=blocked NOTE="$installed -> $target crosses a major version: follow Garage's migration guide for it, then re-run with --force"
+		fi
+		;;
+	-1)
+		if ((FORCE)); then
+			ACTION=update NOTE="DOWNGRADE $installed -> $target"
+		elif ((explicit)); then
+			ACTION=blocked NOTE="$target is older than the installed $installed; re-run with --force to downgrade"
+		else
+			ACTION=none NOTE="installed $installed is newer than the latest release $target"
+		fi
+		;;
+	*)
+		if ((FORCE)); then ACTION=update NOTE="$installed -> $target"; else
+			ACTION=blocked NOTE="cannot compare versions '$installed' and '$target'; re-run with --force to install anyway"
+		fi
+		;;
+	esac
+}
+
+confirm() {
+	((YES || DRY_RUN)) && return 0
+	[[ -t 0 ]] || die "no terminal to confirm on; re-run with --yes"
+	local reply
+	read -r -p "Proceed? [y/N] " reply
+	[[ $reply == [yY] || $reply == [yY][eE][sS] ]] || die "aborted; nothing was changed"
+}
+
+# --- Garage (core) ------------------------------------------------------------
+
+garage_version() { # binary -> vX.Y.Z, empty when it does not run
+	local out _ v
+	out=$("$1" --version 2>/dev/null) || return 0
+	read -r _ v _ <<<"$(first_line "$out")"
+	printf '%s' "$v"
+}
+
+detect_core() {
+	local info port
+	if [[ -z $GARAGE_PLATFORM ]]; then
+		case $(uname -m) in
+		x86_64) GARAGE_PLATFORM=x86_64-unknown-linux-musl ;;
+		aarch64 | arm64) GARAGE_PLATFORM=aarch64-unknown-linux-musl ;;
+		armv6l | armv7l) GARAGE_PLATFORM=armv6l-unknown-linux-musleabihf ;;
+		i686 | i386) GARAGE_PLATFORM=i686-unknown-linux-musl ;;
+		esac
+	fi
+	ADMIN_HDR=$WORK/admin.hdr
+	rm -f -- "$ADMIN_HDR"
+	info=$(py toml "$GARAGE_CONFIG" "$GARAGE_ADMIN_TOKEN_FILE" "$ADMIN_HDR") ||
+		die "cannot read $GARAGE_CONFIG"
+	{
+		read -r META_DIR
+		read -r port
+	} <<<"$info"
+	[[ -f $ADMIN_HDR ]] || ADMIN_HDR=
+	if [[ -z $GARAGE_ADMIN_URL ]]; then
+		[[ -n $port ]] || die "cannot work out the admin API address from $GARAGE_CONFIG; set GARAGE_ADMIN_URL"
+		GARAGE_ADMIN_URL=http://127.0.0.1:$port
+	fi
+	CORE_INSTALLED=$(garage_version "$GARAGE_BIN")
+}
+
+admin_get() { # file path
+	[[ -n $ADMIN_HDR ]] && http_get "$1" "$GARAGE_ADMIN_URL$2" -H "@$ADMIN_HDR"
+}
+
+core_healthy() {
+	[[ $(http_status "$GARAGE_ADMIN_URL/health") == 200 ]] || return 1
+	[[ -n $ADMIN_HDR ]] || return 0
+	admin_get "$WORK/health.json" /v2/GetClusterHealth || return 1
+	[[ $(py json "$WORK/health.json" status 2>/dev/null) == healthy ]]
+}
+
+core_counts() { # "<buckets> <keys>"; empty without an admin token
+	[[ -n $ADMIN_HDR ]] || return 0
+	admin_get "$WORK/buckets.json" /v2/ListBuckets || return 1
+	admin_get "$WORK/keys.json" /v2/ListKeys || return 1
+	printf '%s %s' "$(py count "$WORK/buckets.json")" "$(py count "$WORK/keys.json")"
+}
+
+core_running_version() {
+	admin_get "$WORK/node.json" "/v2/GetNodeInfo?node=self" && py node-version "$WORK/node.json"
+}
+
+plan_core() { # version file
+	local want=$1 file=$2 out
+	detect_core
+	if [[ -n $file ]]; then
+		[[ -f $file ]] || die "no such file: $file"
+		install -m 0755 -- "$file" "$WORK/garage"
+		CORE_TARGET=$(garage_version "$WORK/garage")
+		[[ -n $CORE_TARGET ]] || die "$file does not run as a Garage binary (--version failed)"
+		CORE_URL='' CORE_SIZE=$(stat -c %s -- "$WORK/garage") CORE_SOURCE=$file
+	else
+		[[ -n $GARAGE_PLATFORM ]] || die "no Garage release build for $(uname -m); set GARAGE_PLATFORM or use --file"
+		fetch "$GARAGE_RELEASES_URL" "$WORK/garage-releases.json" 8388608 60 ||
+			die "cannot download the Garage release index ($GARAGE_RELEASES_URL)"
+		out=$(py garage-release "$WORK/garage-releases.json" "$GARAGE_PLATFORM" "$want") ||
+			die "no matching Garage release; nothing was changed"
+		read -r CORE_TARGET CORE_URL CORE_SIZE <<<"$out"
+		CORE_SOURCE=$CORE_URL
+	fi
+	decide "$CORE_INSTALLED" "$CORE_TARGET" "$([[ -n $want || -n $file ]] && echo 1 || echo 0)" 1
+	CORE_ACTION=$ACTION CORE_NOTE=$NOTE
+	if [[ $CORE_ACTION == update ]] && ! { sc is-active --quiet "$GARAGE_SERVICE" && core_healthy; }; then
+		if ((FORCE)); then
+			CORE_NOTE+=" (Garage is NOT healthy right now)"
+		else
+			CORE_ACTION=blocked CORE_NOTE="Garage is not running or not healthy; fix that first, or re-run with --force"
+		fi
+	fi
+}
+
+apply_core() {
+	local bk got counts_before counts_after started running size
+	[[ $META_DIR == /?* && -d $META_DIR ]] || die "metadata_dir from $GARAGE_CONFIG is not an absolute directory: '$META_DIR'"
+	if [[ -n $CORE_URL ]]; then
+		step "Downloading Garage $CORE_TARGET ($((CORE_SIZE >> 20)) MiB)"
+		need_space "$WORK" "$CORE_SIZE"
+		fetch "$CORE_URL" "$WORK/garage" $((CORE_SIZE + 1)) 900 || die "download failed: $CORE_URL"
+		[[ $(stat -c %s -- "$WORK/garage") == "$CORE_SIZE" ]] ||
+			die "the download is not the $CORE_SIZE bytes the release index lists"
+		chmod 0755 -- "$WORK/garage"
+	fi
+	got=$(garage_version "$WORK/garage")
+	[[ $got == "$CORE_TARGET" ]] || die "the new binary reports '$got', expected $CORE_TARGET"
+	step "Verified Garage $CORE_TARGET"
+
+	[[ -n $ADMIN_HDR ]] || warn "no admin token in $GARAGE_CONFIG: skipping the bucket/key and node-version checks"
+	counts_before=$(core_counts) || die "cannot list buckets and keys over the admin API"
+	size=$(du -sb -- "$GARAGE_BIN" "$META_DIR" | awk '{ s += $1 } END { print s }')
+	need_space "$BACKUP_DIR" "$size"
+	need_space "$(dirname -- "$GARAGE_BIN")" "$CORE_SIZE"
+	if ((DRY_RUN)); then
+		say "Dry run: everything checks out; nothing was changed."
+		return 0
+	fi
+
+	step "Taking a metadata snapshot"
+	"$GARAGE_BIN" -c "$GARAGE_CONFIG" meta snapshot >/dev/null || die "garage meta snapshot failed; nothing was changed"
+	NEW_FILES+=("$GARAGE_BIN.new")
+	install -m 0755 -- "$WORK/garage" "$GARAGE_BIN.new"
+	bk=$(new_backup core "$CORE_INSTALLED" "$CORE_TARGET")
+
+	ROLLBACK=core BK=$bk PHASE=stopped
+	step "Stopping $GARAGE_SERVICE"
+	sc stop "$GARAGE_SERVICE"
+	step "Backing up the binary and $META_DIR to $bk"
+	cp -a -- "$GARAGE_BIN" "$bk/garage"
+	cp -a -- "$META_DIR" "$bk/meta"
+	cat >"$bk/RESTORE.txt" <<EOF
+Made by $PROG on $(date -u) before updating Garage $CORE_INSTALLED -> $CORE_TARGET.
+To put it back by hand (this discards metadata changes made since):
+  ${SYSTEMCTL} stop $GARAGE_SERVICE
+  cp -a $bk/garage $GARAGE_BIN
+  mv $META_DIR $META_DIR.replaced && cp -a $bk/meta $META_DIR
+  ${SYSTEMCTL} start $GARAGE_SERVICE
+EOF
+	mv -f -- "$GARAGE_BIN.new" "$GARAGE_BIN"
+	PHASE=swapped
+
+	step "Starting Garage $CORE_TARGET"
+	started=$(date +%s)
+	sc start "$GARAGE_SERVICE"
+	wait_for "$CORE_HEALTH_TIMEOUT" core_healthy || die "Garage did not report healthy within ${CORE_HEALTH_TIMEOUT}s"
+	sc is-active --quiet "$GARAGE_SERVICE" || die "$GARAGE_SERVICE is not active"
+	if [[ -n $ADMIN_HDR ]]; then
+		running=$(core_running_version) || running=
+		[[ $running == "$CORE_TARGET" ]] || die "the running node reports '$running', expected $CORE_TARGET"
+		counts_after=$(core_counts) || die "cannot list buckets and keys after the update"
+		[[ $counts_after == "$counts_before" ]] ||
+			die "bucket/key counts changed: before $counts_before, after $counts_after"
+	fi
+	journal_clean "$GARAGE_SERVICE" "$started" || die "$GARAGE_SERVICE logged a panic after starting"
+	PHASE='done'
+	say "Garage updated: $CORE_INSTALLED -> $CORE_TARGET (healthy${counts_after:+; buckets/keys unchanged at ${counts_after/ //}}). Backup: $bk"
+	syslog "core $CORE_INSTALLED -> $CORE_TARGET: ok"
+	prune_backups core
+}
+
+rollback_failed() { # component unit reason
+	warn "THE ROLLBACK FAILED: $3. Check: $JOURNALCTL -u $2; manual steps: $BK/RESTORE.txt"
+	syslog "$1 update failed and so did the rollback: $3"
+	return 1
+}
+
+rollback_core() {
+	local kept
+	warn "update failed; restoring Garage $CORE_INSTALLED from $BK"
+	sc stop "$GARAGE_SERVICE"
+	# A crash-looping new version can trip systemd's start rate limit, which
+	# would then refuse the start below.
+	sc reset-failed "$GARAGE_SERVICE" 2>/dev/null
+	if [[ $PHASE == swapped ]]; then
+		{ cp -a -- "$BK/garage" "$GARAGE_BIN.rollback" && mv -f -- "$GARAGE_BIN.rollback" "$GARAGE_BIN"; } ||
+			{ rollback_failed core "$GARAGE_SERVICE" "could not put the old binary back"; return; }
+		kept="$META_DIR.failed-$(date -u +%Y%m%dT%H%M%SZ)"
+		{ mv -- "$META_DIR" "$kept" && cp -a -- "$BK/meta" "$META_DIR"; } ||
+			{ rollback_failed core "$GARAGE_SERVICE" "could not restore $META_DIR"; return; }
+		warn "metadata as the failed version left it is kept at $kept"
+	fi
+	sc start "$GARAGE_SERVICE" || warn "could not start $GARAGE_SERVICE"
+	if wait_for "$CORE_HEALTH_TIMEOUT" core_healthy; then
+		warn "rolled back: Garage $CORE_INSTALLED is running and healthy"
+		syslog "core $CORE_INSTALLED -> $CORE_TARGET: failed, rolled back"
+		return 0
+	fi
+	rollback_failed core "$GARAGE_SERVICE" "Garage $CORE_INSTALLED did not come back healthy"
+}
+
+# --- Garage WebUI-NG (gui) ----------------------------------------------------
+
+webui_version() { # binary -> its version, empty when it does not run
+	local out
+	out=$("$1" -version 2>/dev/null) || return 0
+	first_line "$out"
+}
+
+detect_gui() {
+	local environment files key val host='' port='' base='' db='' wd
+	environment=$(sc show -p Environment --value "$WEBUI_SERVICE" 2>/dev/null) || environment=
+	files=$(sc show -p EnvironmentFiles --value "$WEBUI_SERVICE" 2>/dev/null) || files=
+	while IFS='=' read -r key val; do
+		case $key in
+		HOST) host=$val ;;
+		PORT) port=$val ;;
+		BASE_PATH) base=$val ;;
+		DB_PATH) db=$val ;;
+		esac
+	done < <(py unit-env "$environment" "$files" HOST PORT BASE_PATH DB_PATH)
+	if [[ -z $WEBUI_URL ]]; then
+		case $host in '' | 0.0.0.0 | :: | '[::]') host=127.0.0.1 ;; esac
+		[[ $host == *:* && $host != \[* ]] && host="[$host]"
+		WEBUI_URL="http://$host:${port:-3909}${base%/}"
+	fi
+	if [[ -z $WEBUI_DB ]]; then
+		WEBUI_DB=${db:-data/garage-webui-ng.db} # the app's own default, relative to its working directory
+		if [[ $WEBUI_DB != /* ]]; then
+			wd=$(sc show -p WorkingDirectory --value "$WEBUI_SERVICE" 2>/dev/null) || wd=
+			WEBUI_DB="${wd:-/}/$WEBUI_DB"
+		fi
+	fi
+	GUI_INSTALLED=$(webui_version "$WEBUI_BIN")
+}
+
+db_files() { # the user database and whichever SQLite side files exist
+	local f
+	for f in "$WEBUI_DB" "$WEBUI_DB-wal" "$WEBUI_DB-shm" "$WEBUI_DB-journal"; do
+		if [[ -e $f ]]; then printf '%s\n' "$f"; fi
+	done
+}
+
+gui_ready() { # needsSetup the instance must report, '' for any
+	[[ $(http_status "$WEBUI_URL/api/auth/status") == 200 ]] || return 1
+	[[ $(http_status "$WEBUI_URL/") == 200 ]] || return 1 # also catches a build without the embedded UI
+	[[ -n $1 ]] || return 0
+	http_get "$WORK/setup.json" "$WEBUI_URL/api/setup/status" || return 1
+	[[ $(py json "$WORK/setup.json" needsSetup 2>/dev/null) == "$1" ]]
+}
+
+plan_gui() { # version file sha256
+	local want=$1 file=$2 sha=$3 base
+	detect_gui
+	GUI_TAG=
+	if [[ -n $file ]]; then
+		[[ -f $file ]] || die "no such file: $file"
+		install -m 0755 -- "$file" "$WORK/webui"
+		if [[ -n $sha && $(sha256_of "$WORK/webui") != "${sha,,}" ]]; then
+			die "$file does not have the SHA-256 given with --sha256"
+		fi
+		GUI_TARGET=$(webui_version "$WORK/webui")
+		[[ -n $GUI_TARGET ]] || die "$file does not run as a WebUI-NG binary (-version failed)"
+		GUI_SOURCE=$file
+	else
+		command -v openssl >/dev/null || die "openssl is needed to verify WebUI-NG releases"
+		case $(uname -m) in
+		x86_64) GUI_ASSET=garage-webui-ng-linux-amd64 ;;
+		aarch64 | arm64) GUI_ASSET=garage-webui-ng-linux-arm64 ;;
+		*) die "no WebUI-NG release build for $(uname -m); use --file" ;;
+		esac
+		if [[ -n $want ]]; then
+			GUI_TAG=v${want#v}
+		else
+			fetch "https://api.github.com/repos/$WEBUI_REPO/releases/latest" "$WORK/latest.json" 1048576 60 ||
+				die "cannot look up the latest WebUI-NG release"
+			GUI_TAG=$(py json "$WORK/latest.json" tag_name) || die "unexpected answer from the GitHub API"
+		fi
+		[[ $GUI_TAG =~ ^v[0-9A-Za-z.+-]+$ ]] || die "unexpected release tag '$GUI_TAG'"
+		base="https://github.com/$WEBUI_REPO/releases/download/$GUI_TAG"
+		{ fetch "$base/SHA256SUMS" "$WORK/SHA256SUMS" 65536 60 && fetch "$base/SHA256SUMS.sig" "$WORK/SHA256SUMS.sig" 65536 60; } ||
+			die "cannot download SHA256SUMS(.sig) of release $GUI_TAG (does it exist?)"
+		verify_signature "$WORK/SHA256SUMS" "$WORK/SHA256SUMS.sig" ||
+			die "the SHA256SUMS signature of $GUI_TAG does not verify against WEBUI_PUBKEY; refusing it"
+		GUI_SHA=$(awk -v n="$GUI_ASSET" '$2 == n || $2 == "*" n { print $1 }' "$WORK/SHA256SUMS")
+		[[ $GUI_SHA =~ ^[0-9a-f]{64}$ ]] || die "SHA256SUMS of $GUI_TAG has no single entry for $GUI_ASSET"
+		GUI_TARGET=$GUI_TAG GUI_SOURCE="$base/$GUI_ASSET (signature verified)"
+	fi
+	decide "$GUI_INSTALLED" "$GUI_TARGET" "$([[ -n $want || -n $file ]] && echo 1 || echo 0)" 0
+	GUI_ACTION=$ACTION GUI_NOTE=$NOTE
+	if [[ $GUI_ACTION == update ]] && ! { sc is-active --quiet "$WEBUI_SERVICE" && gui_ready ''; }; then
+		if ((FORCE)); then
+			GUI_NOTE+=" (WebUI-NG is NOT responding right now)"
+		else
+			GUI_ACTION=blocked GUI_NOTE="WebUI-NG is not running or not responding at $WEBUI_URL; fix that first, or re-run with --force"
+		fi
+	fi
+}
+
+apply_gui() {
+	local bk got started needs_setup=
+	if [[ -n $GUI_TAG ]]; then
+		step "Downloading WebUI-NG $GUI_TAG ($GUI_ASSET)"
+		need_space "$WORK" 268435456
+		fetch "https://github.com/$WEBUI_REPO/releases/download/$GUI_TAG/$GUI_ASSET" "$WORK/webui" 268435456 900 ||
+			die "download of $GUI_ASSET failed"
+		[[ $(sha256_of "$WORK/webui") == "$GUI_SHA" ]] || die "$GUI_ASSET does not match its signed checksum"
+		chmod 0755 -- "$WORK/webui"
+	fi
+	got=$(webui_version "$WORK/webui")
+	[[ $got == "$GUI_TARGET" ]] || die "the new binary reports '$got', expected $GUI_TARGET"
+	step "Verified WebUI-NG $GUI_TARGET"
+
+	[[ -f $WEBUI_DB ]] || die "user database not found: '$WEBUI_DB' (set WEBUI_DB)"
+	mapfile -t DB_FILES < <(db_files)
+	if http_get "$WORK/setup.json" "$WEBUI_URL/api/setup/status"; then
+		needs_setup=$(py json "$WORK/setup.json" needsSetup 2>/dev/null) || needs_setup=
+	fi
+	need_space "$BACKUP_DIR" "$(du -sb -- "$WEBUI_BIN" "${DB_FILES[@]}" | awk '{ s += $1 } END { print s }')"
+	need_space "$(dirname -- "$WEBUI_BIN")" "$(stat -c %s -- "$WORK/webui")"
+	if ((DRY_RUN)); then
+		say "Dry run: everything checks out; nothing was changed."
+		return 0
+	fi
+
+	NEW_FILES+=("$WEBUI_BIN.new")
+	install -m 0755 -- "$WORK/webui" "$WEBUI_BIN.new"
+	bk=$(new_backup gui "$GUI_INSTALLED" "$GUI_TARGET")
+
+	ROLLBACK=gui BK=$bk PHASE=stopped
+	step "Stopping $WEBUI_SERVICE"
+	sc stop "$WEBUI_SERVICE"
+	step "Backing up the binary and $WEBUI_DB to $bk"
+	cp -a -- "$WEBUI_BIN" "$bk/garage-webui-ng"
+	mapfile -t DB_FILES < <(db_files) # re-read: stopping may have checkpointed the WAL
+	mkdir -- "$bk/db"
+	cp -a -- "${DB_FILES[@]}" "$bk/db/"
+	cat >"$bk/RESTORE.txt" <<EOF
+Made by $PROG on $(date -u) before updating WebUI-NG $GUI_INSTALLED -> $GUI_TARGET.
+To put it back by hand (this discards user changes made since):
+  ${SYSTEMCTL} stop $WEBUI_SERVICE
+  cp -a $bk/garage-webui-ng $WEBUI_BIN
+  rm -f $WEBUI_DB-wal $WEBUI_DB-shm $WEBUI_DB-journal
+  cp -a $bk/db/* $(dirname -- "$WEBUI_DB")/
+  ${SYSTEMCTL} start $WEBUI_SERVICE
+EOF
+	mv -f -- "$WEBUI_BIN.new" "$WEBUI_BIN"
+	PHASE=swapped
+
+	step "Starting WebUI-NG $GUI_TARGET"
+	started=$(date +%s)
+	sc start "$WEBUI_SERVICE"
+	wait_for "$WEBUI_HEALTH_TIMEOUT" gui_ready "$needs_setup" ||
+		die "WebUI-NG did not respond at $WEBUI_URL within ${WEBUI_HEALTH_TIMEOUT}s${needs_setup:+ (or its setup state changed)}"
+	sc is-active --quiet "$WEBUI_SERVICE" || die "$WEBUI_SERVICE is not active"
+	journal_clean "$WEBUI_SERVICE" "$started" || die "$WEBUI_SERVICE logged a panic after starting"
+	PHASE='done'
+	say "WebUI-NG updated: $GUI_INSTALLED -> $GUI_TARGET (responding at $WEBUI_URL). Backup: $bk"
+	syslog "gui $GUI_INSTALLED -> $GUI_TARGET: ok"
+	prune_backups gui
+}
+
+restore_db() {
+	local f
+	# Move the failed version's files aside first: a leftover -wal next to the
+	# restored database would be replayed into it.
+	mkdir -p -- "$BK/db-failed" || return 1
+	while IFS= read -r f; do
+		mv -- "$f" "$BK/db-failed/" || return 1
+	done < <(db_files)
+	cp -a -- "$BK"/db/* "$(dirname -- "$WEBUI_DB")/"
+}
+
+rollback_gui() {
+	warn "update failed; restoring WebUI-NG $GUI_INSTALLED from $BK"
+	sc stop "$WEBUI_SERVICE"
+	sc reset-failed "$WEBUI_SERVICE" 2>/dev/null # see rollback_core
+	if [[ $PHASE == swapped ]]; then
+		{ cp -a -- "$BK/garage-webui-ng" "$WEBUI_BIN.rollback" && mv -f -- "$WEBUI_BIN.rollback" "$WEBUI_BIN"; } ||
+			{ rollback_failed gui "$WEBUI_SERVICE" "could not put the old binary back"; return; }
+		restore_db || { rollback_failed gui "$WEBUI_SERVICE" "could not restore $WEBUI_DB"; return; }
+		warn "the user database as the failed version left it is kept in $BK/db-failed"
+	fi
+	sc start "$WEBUI_SERVICE" || warn "could not start $WEBUI_SERVICE"
+	if wait_for "$WEBUI_HEALTH_TIMEOUT" gui_ready ''; then
+		warn "rolled back: WebUI-NG $GUI_INSTALLED is running"
+		syslog "gui $GUI_INSTALLED -> $GUI_TARGET: failed, rolled back"
+		return 0
+	fi
+	rollback_failed gui "$WEBUI_SERVICE" "WebUI-NG $GUI_INSTALLED is not responding"
+}
+
+# --- commands -----------------------------------------------------------------
+
+compare_note() { # installed latest
+	case $(py vercmp "$2" "$1") in
+	0) printf 'up to date' ;;
+	1) printf 'UPDATE AVAILABLE' ;;
+	-1) printf 'installed build is newer than the latest release' ;;
+	*) printf 'versions not comparable' ;;
+	esac
+}
+
+cmd_status() {
+	local out latest state health
+	detect_core
+	state=$(sc is-active "$GARAGE_SERVICE" 2>/dev/null) || true
+	if core_healthy; then health="healthy"; else health="NOT healthy"; fi
+	say "Garage (core)"
+	say "  installed  ${CORE_INSTALLED:-unknown}  ($GARAGE_SERVICE: ${state:-unknown}, cluster $health)"
+	latest="unknown (cannot reach $GARAGE_RELEASES_URL)"
+	if [[ -n $GARAGE_PLATFORM ]] && fetch "$GARAGE_RELEASES_URL" "$WORK/garage-releases.json" 8388608 60 &&
+		out=$(py garage-release "$WORK/garage-releases.json" "$GARAGE_PLATFORM" "" 2>/dev/null); then
+		read -r latest _ <<<"$out"
+		latest="$latest  -> $(compare_note "$CORE_INSTALLED" "$latest")"
+	fi
+	say "  latest     $latest"
+
+	detect_gui
+	state=$(sc is-active "$WEBUI_SERVICE" 2>/dev/null) || true
+	if gui_ready ''; then health="responding"; else health="NOT responding"; fi
+	say "Garage WebUI-NG (gui)"
+	say "  installed  ${GUI_INSTALLED:-unknown}  ($WEBUI_SERVICE: ${state:-unknown}, $health at $WEBUI_URL)"
+	latest="unknown (cannot reach the GitHub API)"
+	if fetch "https://api.github.com/repos/$WEBUI_REPO/releases/latest" "$WORK/latest.json" 1048576 60 &&
+		out=$(py json "$WORK/latest.json" tag_name 2>/dev/null); then
+		latest="$out  -> $(compare_note "$GUI_INSTALLED" "$out")"
+	fi
+	say "  latest     $latest"
+}
+
+show_plan() { # name action note source
+	printf '  %-22s %s\n' "$1" "$3"
+	[[ $2 == update ]] && printf '  %-22s from %s\n' "" "$4"
+	return 0
+}
+
+main() {
+	local cmd='' want='' file='' sha='' c
+	YES=0 FORCE=0 DRY_RUN=0
+	while (($#)); do
+		case $1 in
+		-y | --yes) YES=1 ;;
+		--force) FORCE=1 ;;
+		-n | --dry-run) DRY_RUN=1 ;;
+		--file | --sha256)
+			(($# >= 2)) || {
+				usage >&2
+				exit 2
+			}
+			if [[ $1 == --file ]]; then file=$2; else sha=$2; fi
+			shift
+			;;
+		-h | --help | help)
+			usage
+			exit 0
+			;;
+		-*)
+			usage >&2
+			exit 2
+			;;
+		*)
+			if [[ -z $cmd ]]; then cmd=$1; elif [[ -z $want ]]; then want=$1; else
+				usage >&2
+				exit 2
+			fi
+			;;
+		esac
+		shift
+	done
+	cmd=${cmd:-status}
+	case $cmd in
+	status | all) [[ -z $want && -z $file && -z $sha ]] || {
+		usage >&2
+		exit 2
+	} ;;
+	core | gui) [[ -z $want || -z $file ]] && [[ -z $sha || -n $file ]] || {
+		usage >&2
+		exit 2
+	} ;;
+	*)
+		usage >&2
+		exit 2
+		;;
+	esac
+
+	load_config
+	read -ra SYSTEMCTL_CMD <<<"$SYSTEMCTL"
+	read -ra JOURNALCTL_CMD <<<"$JOURNALCTL"
+	((KEEP_BACKUPS >= 1)) || KEEP_BACKUPS=1
+	for c in curl python3 sha256sum flock awk install; do
+		command -v "$c" >/dev/null || die "missing required command: $c"
+	done
+	py check 2>/dev/null || die "Python 3.11 or newer is required"
+
+	trap on_exit EXIT
+	trap 'exit 130' INT TERM HUP
+	mkdir -p -- "$BACKUP_DIR"
+	chmod 700 -- "$BACKUP_DIR"
+	WORK=$(mktemp -d "$BACKUP_DIR/.work.XXXXXX")
+
+	if [[ $cmd == status ]]; then
+		cmd_status
+		return
+	fi
+	take_lock
+	CORE_ACTION=none GUI_ACTION=none
+	[[ $cmd == core || $cmd == all ]] && plan_core "$want" "$file"
+	[[ $cmd == gui || $cmd == all ]] && plan_gui "$want" "$file" "$sha"
+
+	say "Plan:"
+	[[ $cmd == gui ]] || show_plan "Garage (core)" "$CORE_ACTION" "$CORE_NOTE" "$CORE_SOURCE"
+	[[ $cmd == core ]] || show_plan "Garage WebUI-NG (gui)" "$GUI_ACTION" "$GUI_NOTE" "$GUI_SOURCE"
+	if [[ $CORE_ACTION == blocked || $GUI_ACTION == blocked ]]; then
+		die "refusing: see the plan above; nothing was changed"
+	fi
+	if [[ $CORE_ACTION != update && $GUI_ACTION != update ]]; then
+		say "Nothing to do."
+		return
+	fi
+	confirm
+	if [[ $CORE_ACTION == update ]]; then
+		apply_core
+		PHASE=idle
+	fi
+	if [[ $GUI_ACTION == update ]]; then
+		apply_gui
+		PHASE=idle
+	fi
+}
+
+main "$@"
