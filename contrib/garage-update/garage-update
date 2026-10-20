@@ -64,14 +64,17 @@ Options:
   -h, --help           this help
 
 Exit status: 0 done or nothing to do, 1 failed before anything changed,
-2 usage error, 3 failed and rolled back, 4 failed and the rollback failed too.
+2 usage error, 3 failed and rolled back, 4 failed and the rollback failed too,
+5 one component was updated, then a later step failed before changing more.
 Settings: $CONF (see contrib/garage-update/README.md).
 EOF
 }
 
-say() { printf '%s\n' "$*"; }
-step() { printf '==> %s\n' "$*"; }
-warn() { printf '%s: %s\n' "$PROG" "$*" >&2; }
+# Output must never abort a run: a vanished terminal cannot be allowed to stop
+# a rollback halfway.
+say() { printf '%s\n' "$*" || true; }
+step() { printf '==> %s\n' "$*" || true; }
+warn() { printf '%s: %s\n' "$PROG" "$*" >&2 || true; }
 die() {
 	warn "$*"
 	exit 1
@@ -87,13 +90,13 @@ read -r -d '' PY <<'PYEOF' || true
 import json, os, re, shlex, sys
 
 def vparse(v):
-    m = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)(?:-((?:alpha|beta|rc)\.?\d*)|-(\d+)-g[0-9a-f]+)?(?:-dirty)?", v.strip())
+    m = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)(?:-(alpha|beta|rc)\.?(\d*)|-(\d+)-g[0-9a-f]+)?(?:-dirty)?", v.strip())
     if m is None:
         return None
     base = tuple(int(x) for x in m.group(1, 2, 3))
-    if m.group(4):
-        return base + (0, m.group(4))           # a pre-release comes before its release
-    return base + (1, int(m.group(5) or 0))     # git describe: N commits after the tag
+    if m.group(4):  # a pre-release comes before its release: alpha < beta < rc, rc9 < rc10
+        return base + (0, ("alpha", "beta", "rc").index(m.group(4)), int(m.group(5) or 0))
+    return base + (1, int(m.group(6) or 0), 0)  # git describe: N commits after the tag
 
 def load(path):
     with open(path) as f:
@@ -166,9 +169,12 @@ def cmd_node_version(path):
         sys.exit("unexpected GetNodeInfo response")
     print(nodes[0]["garageVersion"])
 
-def cmd_unit_env(environment, files, *keys):
+def cmd_unit_env(*keys):
     # Environment= first, then EnvironmentFile= on top, as systemd applies them.
-    # Only the requested keys are printed: the files can hold passwords.
+    # Both arrive in environment variables, not argv (which any local user can
+    # read), and only the requested keys are printed: they can hold passwords.
+    environment = os.environ.get("UNIT_ENVIRONMENT", "")
+    files = os.environ.get("UNIT_ENV_FILES", "")
     env = {}
     try:
         items = shlex.split(environment)
@@ -225,18 +231,39 @@ NEW_FILES=()
 PHASE=idle # idle | stopped | swapped | done: what a failure has to undo
 ROLLBACK=  # core | gui
 BK=
+UPDATED=0 # a component has been updated in this run
+LOG_PID=
 
 on_exit() {
 	local rc=$?
+	set +e
 	trap - EXIT
 	trap '' INT TERM HUP
 	if ((rc != 0)) && [[ $PHASE == stopped || $PHASE == swapped ]]; then
-		set +e
 		if "rollback_$ROLLBACK"; then rc=3; else rc=4; fi
+	elif ((rc == 1 && UPDATED)); then
+		rc=5 # something was updated before a later step failed
 	fi
 	((${#NEW_FILES[@]})) && rm -f -- "${NEW_FILES[@]}"
 	[[ -n $WORK ]] && rm -rf -- "$WORK"
+	if [[ -n $LOG_PID ]]; then
+		exec >&- 2>&- # let tee drain into the terminal and the log first
+		wait "$LOG_PID" 2>/dev/null
+	fi
 	exit "$rc"
+}
+
+# From here on everything also goes to $BACKUP_DIR/garage-update.log, through a
+# tee that survives Ctrl-C, a closed terminal and a dropped SSH session, so the
+# record of an update (or its rollback) is never lost.
+start_log() {
+	exec > >(
+		trap '' INT TERM HUP PIPE
+		exec tee -p -a "$BACKUP_DIR/garage-update.log" 9>&-
+	) 2>&1
+	LOG_PID=$!
+	say ""
+	say "=== $(date -u '+%F %T UTC') $PROG $*"
 }
 
 take_lock() {
@@ -245,9 +272,17 @@ take_lock() {
 	flock -n 9 || die "another $PROG run holds $LOCK_FILE"
 }
 
-fetch() { # url file max-bytes max-seconds
-	curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 2 \
-		--max-filesize "$3" --max-time "$4" -o "$2" "$1"
+fetch() { # url file max-bytes max-seconds: a stalled transfer is cut short and retried
+	local try
+	for try in 1 2 3 4; do
+		curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 20 \
+			--speed-limit 32768 --speed-time 30 --max-filesize "$3" --max-time "$4" -o "$2" "$1" && return 0
+		if ((try < 4)); then
+			warn "download attempt $try of 4 failed: $1; retrying"
+			sleep 5
+		fi
+	done
+	return 1
 }
 
 http_status() { # url [curl args...] -> HTTP status, 000 when unreachable
@@ -286,8 +321,8 @@ first_line() { printf '%s' "${1%%$'\n'*}"; }
 new_backup() { # kind from to -> prints a fresh directory (never reuses one)
 	local dir
 	dir="$BACKUP_DIR/$1-$2-to-$3-$(date -u +%Y%m%dT%H%M%SZ)"
-	mkdir -- "$dir"
-	printf '%s %s -> %s\n' "$1" "$2" "$3" >"$dir/.garage-update"
+	mkdir -- "$dir" || return 1 # errexit does not reach into $(...)
+	printf '%s %s -> %s\n' "$1" "$2" "$3" >"$dir/.garage-update" || return 1
 	printf '%s' "$dir"
 }
 
@@ -337,7 +372,13 @@ decide() {
 	cmp=$(py vercmp "$target" "$installed")
 	case $cmp in
 	0)
-		if ((FORCE)); then ACTION=update NOTE="reinstall $target"; else ACTION=none NOTE="up to date ($installed)"; fi
+		if [[ $target != "$installed" ]]; then
+			ACTION=update NOTE="$installed -> $target (another build of the same version)"
+		elif ((FORCE)); then
+			ACTION=update NOTE="reinstall $target"
+		else
+			ACTION=none NOTE="up to date ($installed)"
+		fi
 		;;
 	1)
 		ACTION=update NOTE="$installed -> $target"
@@ -398,6 +439,8 @@ detect_core() {
 		read -r port
 	} <<<"$info"
 	[[ -f $ADMIN_HDR ]] || ADMIN_HDR=
+	# Resolve symlinks and a trailing slash, so backups copy the data itself.
+	[[ -z $META_DIR ]] || META_DIR=$(realpath -e -- "$META_DIR" 2>/dev/null || printf '%s' "$META_DIR")
 	if [[ -z $GARAGE_ADMIN_URL ]]; then
 		[[ -n $port ]] || die "cannot work out the admin API address from $GARAGE_CONFIG; set GARAGE_ADMIN_URL"
 		GARAGE_ADMIN_URL=http://127.0.0.1:$port
@@ -427,12 +470,15 @@ core_running_version() {
 	admin_get "$WORK/node.json" "/v2/GetNodeInfo?node=self" && py node-version "$WORK/node.json"
 }
 
-plan_core() { # version file
-	local want=$1 file=$2 out
+plan_core() { # version file sha256
+	local want=$1 file=$2 sha=$3 out
 	detect_core
 	if [[ -n $file ]]; then
 		[[ -f $file ]] || die "no such file: $file"
 		install -m 0755 -- "$file" "$WORK/garage"
+		if [[ -n $sha && $(sha256_of "$WORK/garage") != "${sha,,}" ]]; then
+			die "$file does not have the SHA-256 given with --sha256"
+		fi
 		CORE_TARGET=$(garage_version "$WORK/garage")
 		[[ -n $CORE_TARGET ]] || die "$file does not run as a Garage binary (--version failed)"
 		CORE_URL='' CORE_SIZE=$(stat -c %s -- "$WORK/garage") CORE_SOURCE=$file
@@ -457,8 +503,10 @@ plan_core() { # version file
 }
 
 apply_core() {
-	local bk got counts_before counts_after started running size
+	local bk got counts_before counts_after started running size meta_size backup_dir
 	[[ $META_DIR == /?* && -d $META_DIR ]] || die "metadata_dir from $GARAGE_CONFIG is not an absolute directory: '$META_DIR'"
+	backup_dir=$(realpath -e -- "$BACKUP_DIR")
+	case "$backup_dir/" in "$META_DIR/"*) die "BACKUP_DIR must not be inside metadata_dir ($META_DIR)" ;; esac
 	if [[ -n $CORE_URL ]]; then
 		step "Downloading Garage $CORE_TARGET ($((CORE_SIZE >> 20)) MiB)"
 		need_space "$WORK" "$CORE_SIZE"
@@ -473,8 +521,12 @@ apply_core() {
 
 	[[ -n $ADMIN_HDR ]] || warn "no admin token in $GARAGE_CONFIG: skipping the bucket/key and node-version checks"
 	counts_before=$(core_counts) || die "cannot list buckets and keys over the admin API"
-	size=$(du -sb -- "$GARAGE_BIN" "$META_DIR" | awk '{ s += $1 } END { print s }')
-	need_space "$BACKUP_DIR" "$size"
+	meta_size=$(du -sb -- "$META_DIR" | awk '{ print $1 }')
+	size=$(stat -c %s -- "$GARAGE_BIN")
+	# The backup (the snapshot about to be taken can double the metadata) plus,
+	# on rollback, a copy of what the failed version left behind.
+	need_space "$BACKUP_DIR" $((size + 4 * meta_size))
+	need_space "$META_DIR" "$meta_size"
 	need_space "$(dirname -- "$GARAGE_BIN")" "$CORE_SIZE"
 	if ((DRY_RUN)); then
 		say "Dry run: everything checks out; nothing was changed."
@@ -498,11 +550,12 @@ Made by $PROG on $(date -u) before updating Garage $CORE_INSTALLED -> $CORE_TARG
 To put it back by hand (this discards metadata changes made since):
   ${SYSTEMCTL} stop $GARAGE_SERVICE
   cp -a $bk/garage $GARAGE_BIN
-  mv $META_DIR $META_DIR.replaced && cp -a $bk/meta $META_DIR
+  # move or delete what is in $META_DIR now, then:
+  cp -a $bk/meta/. $META_DIR/
   ${SYSTEMCTL} start $GARAGE_SERVICE
 EOF
+	PHASE=swapped # before the move: a signal mid-move must still restore the binary
 	mv -f -- "$GARAGE_BIN.new" "$GARAGE_BIN"
-	PHASE=swapped
 
 	step "Starting Garage $CORE_TARGET"
 	started=$(date +%s)
@@ -517,10 +570,10 @@ EOF
 			die "bucket/key counts changed: before $counts_before, after $counts_after"
 	fi
 	journal_clean "$GARAGE_SERVICE" "$started" || die "$GARAGE_SERVICE logged a panic after starting"
-	PHASE='done'
+	PHASE='done' UPDATED=1
 	say "Garage updated: $CORE_INSTALLED -> $CORE_TARGET (healthy${counts_after:+; buckets/keys unchanged at ${counts_after/ //}}). Backup: $bk"
 	syslog "core $CORE_INSTALLED -> $CORE_TARGET: ok"
-	prune_backups core
+	prune_backups core || warn "could not prune old core backups"
 }
 
 rollback_failed() { # component unit reason
@@ -529,8 +582,20 @@ rollback_failed() { # component unit reason
 	return 1
 }
 
+# restore_dir backup live kept: replace the contents of live with the backup's,
+# keeping a copy of what was there. Contents, not the directory itself, so a
+# mount point works too.
+restore_dir() {
+	if mkdir -p -- "$3" && cp -a -- "$2/." "$3/"; then
+		warn "$2 as the failed version left it is kept in $3"
+	else
+		warn "could not keep a copy of $2 as the failed version left it"
+	fi
+	find "$2" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + || return 1
+	cp -a -- "$1/." "$2/"
+}
+
 rollback_core() {
-	local kept
 	warn "update failed; restoring Garage $CORE_INSTALLED from $BK"
 	sc stop "$GARAGE_SERVICE"
 	# A crash-looping new version can trip systemd's start rate limit, which
@@ -539,10 +604,8 @@ rollback_core() {
 	if [[ $PHASE == swapped ]]; then
 		{ cp -a -- "$BK/garage" "$GARAGE_BIN.rollback" && mv -f -- "$GARAGE_BIN.rollback" "$GARAGE_BIN"; } ||
 			{ rollback_failed core "$GARAGE_SERVICE" "could not put the old binary back"; return; }
-		kept="$META_DIR.failed-$(date -u +%Y%m%dT%H%M%SZ)"
-		{ mv -- "$META_DIR" "$kept" && cp -a -- "$BK/meta" "$META_DIR"; } ||
+		restore_dir "$BK/meta" "$META_DIR" "$BK/meta.failed" ||
 			{ rollback_failed core "$GARAGE_SERVICE" "could not restore $META_DIR"; return; }
-		warn "metadata as the failed version left it is kept at $kept"
 	fi
 	sc start "$GARAGE_SERVICE" || warn "could not start $GARAGE_SERVICE"
 	if wait_for "$CORE_HEALTH_TIMEOUT" core_healthy; then
@@ -572,7 +635,7 @@ detect_gui() {
 		BASE_PATH) base=$val ;;
 		DB_PATH) db=$val ;;
 		esac
-	done < <(py unit-env "$environment" "$files" HOST PORT BASE_PATH DB_PATH)
+	done < <(UNIT_ENVIRONMENT=$environment UNIT_ENV_FILES=$files py unit-env HOST PORT BASE_PATH DB_PATH)
 	if [[ -z $WEBUI_URL ]]; then
 		case $host in '' | 0.0.0.0 | :: | '[::]') host=127.0.0.1 ;; esac
 		[[ $host == *:* && $host != \[* ]] && host="[$host]"
@@ -585,6 +648,7 @@ detect_gui() {
 			WEBUI_DB="${wd:-/}/$WEBUI_DB"
 		fi
 	fi
+	WEBUI_DB=$(realpath -e -- "$WEBUI_DB" 2>/dev/null || printf '%s' "$WEBUI_DB")
 	GUI_INSTALLED=$(webui_version "$WEBUI_BIN")
 }
 
@@ -698,8 +762,8 @@ To put it back by hand (this discards user changes made since):
   cp -a $bk/db/* $(dirname -- "$WEBUI_DB")/
   ${SYSTEMCTL} start $WEBUI_SERVICE
 EOF
+	PHASE=swapped # see apply_core
 	mv -f -- "$WEBUI_BIN.new" "$WEBUI_BIN"
-	PHASE=swapped
 
 	step "Starting WebUI-NG $GUI_TARGET"
 	started=$(date +%s)
@@ -708,10 +772,10 @@ EOF
 		die "WebUI-NG did not respond at $WEBUI_URL within ${WEBUI_HEALTH_TIMEOUT}s${needs_setup:+ (or its setup state changed)}"
 	sc is-active --quiet "$WEBUI_SERVICE" || die "$WEBUI_SERVICE is not active"
 	journal_clean "$WEBUI_SERVICE" "$started" || die "$WEBUI_SERVICE logged a panic after starting"
-	PHASE='done'
+	PHASE='done' UPDATED=1
 	say "WebUI-NG updated: $GUI_INSTALLED -> $GUI_TARGET (responding at $WEBUI_URL). Backup: $bk"
 	syslog "gui $GUI_INSTALLED -> $GUI_TARGET: ok"
-	prune_backups gui
+	prune_backups gui || warn "could not prune old gui backups"
 }
 
 restore_db() {
@@ -748,7 +812,7 @@ rollback_gui() {
 
 compare_note() { # installed latest
 	case $(py vercmp "$2" "$1") in
-	0) printf 'up to date' ;;
+	0) if [[ $1 == "$2" ]]; then printf 'up to date'; else printf 'another build of the same version'; fi ;;
 	1) printf 'UPDATE AVAILABLE' ;;
 	-1) printf 'installed build is newer than the latest release' ;;
 	*) printf 'versions not comparable' ;;
@@ -790,7 +854,7 @@ show_plan() { # name action note source
 }
 
 main() {
-	local cmd='' want='' file='' sha='' c
+	local cmd='' want='' file='' sha='' c argv=("$@")
 	YES=0 FORCE=0 DRY_RUN=0
 	while (($#)); do
 		case $1 in
@@ -848,7 +912,8 @@ main() {
 	py check 2>/dev/null || die "Python 3.11 or newer is required"
 
 	trap on_exit EXIT
-	trap 'exit 130' INT TERM HUP
+	trap 'exit 130' INT TERM # a deliberate interruption: roll back
+	trap '' HUP PIPE         # a lost terminal or SSH session: carry on
 	mkdir -p -- "$BACKUP_DIR"
 	chmod 700 -- "$BACKUP_DIR"
 	WORK=$(mktemp -d "$BACKUP_DIR/.work.XXXXXX")
@@ -858,8 +923,9 @@ main() {
 		return
 	fi
 	take_lock
+	start_log "${argv[@]}"
 	CORE_ACTION=none GUI_ACTION=none
-	[[ $cmd == core || $cmd == all ]] && plan_core "$want" "$file"
+	[[ $cmd == core || $cmd == all ]] && plan_core "$want" "$file" "$sha"
 	[[ $cmd == gui || $cmd == all ]] && plan_gui "$want" "$file" "$sha"
 
 	say "Plan:"

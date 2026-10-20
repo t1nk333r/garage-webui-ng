@@ -67,7 +67,12 @@ the confirmation prompt works.
 
 Exit status: `0` done or nothing to do · `1` failed before anything changed ·
 `2` usage error · `3` failed and rolled back · `4` failed **and the rollback
-failed** — follow the `RESTORE.txt` in the backup it names.
+failed** — follow the `RESTORE.txt` in the backup it names · `5` one component
+was updated, then a later step failed before changing anything more (with
+`all`: Garage updated, the web UI not).
+
+Every update run is also appended to `BACKUP_DIR/garage-update.log`, so the
+record survives a closed terminal.
 
 ## What an update does
 
@@ -81,17 +86,22 @@ failed** — follow the `RESTORE.txt` in the backup it names.
      (`https://garagehq.deuxfleurs.fr/_releases.json`, over HTTPS); the
      download must be exactly the size the index lists and must report the
      expected version. Garage publishes no checksums or signatures for its
-     binaries, so HTTPS to the official host is the trust anchor.
+     binaries, so HTTPS to the official host is the trust anchor. That host
+     can be slow: a transfer that stalls is cut off after 30 seconds and
+     retried, up to four attempts.
    - *WebUI-NG:* the same chain as the in-browser updater. The ed25519
      signature over the release's `SHA256SUMS` is checked first, with
      OpenSSL, against `WEBUI_PUBKEY` (the key in `backend/release_key.go`); only
      then is the binary checked against `SHA256SUMS`, and it must report the
      release tag as its version.
    - *`--file`:* checked against `--sha256` when given; it must run and report
-     a version, which is what the plan compares.
+     a version, which is what the plan compares. Two builds at the same
+     `git describe` distance count as different builds, so installing one over
+     the other needs no `--force`.
 3. **Backs up, with the service stopped.** Garage first takes a
    `garage meta snapshot`; then the old binary and the whole `metadata_dir`
-   are copied to `BACKUP_DIR/core-<from>-to-<to>-<time>/`. For WebUI-NG it is
+   (symlinks resolved, so the data itself is copied) go to
+   `BACKUP_DIR/core-<from>-to-<to>-<time>/`. For WebUI-NG it is
    the binary and the user database (`DB_PATH` and any `-wal`/`-shm` files)
    in `BACKUP_DIR/gui-…/`. Each backup has a `RESTORE.txt` with the exact
    manual steps. Garage's data blocks (`data_dir`) are never copied.
@@ -103,8 +113,10 @@ failed** — follow the `RESTORE.txt` in the backup it names.
    instance that was set up must still be set up. Neither may log a panic.
 5. **Rolls back on any failure after the stop**, including Ctrl-C: the old
    binary and data go back, the service restarts, and its health is checked
-   again. Whatever the failed version left behind is kept next to the backup
-   (`meta.failed-<time>`, `db-failed/`).
+   again. The metadata directory's *contents* are replaced, so a mount point
+   works too, and whatever the failed version left behind is kept inside the
+   backup (`meta.failed/`, `db-failed/`). A closed terminal or a dropped SSH
+   session does not interrupt a run: it finishes, or rolls back, on its own.
 6. **Prunes** to the newest `KEEP_BACKUPS` backups per component — only ones
    this tool made — and logs a one-line result to syslog (`journalctl -t
    garage-update`).

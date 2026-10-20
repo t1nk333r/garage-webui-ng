@@ -80,10 +80,11 @@ rsh() {
 rpush() {
 	local src=$1 dst=$2 mode=$3 stage
 	if [[ -n $CTID ]]; then
-		stage=$(ssh "${SSH_OPTS[@]}" "$GARAGE_UPDATE_HOST" mktemp)
-		ssh "${SSH_OPTS[@]}" "$GARAGE_UPDATE_HOST" "cat > $(printf %q "$stage")" <"$src"
-		ssh "${SSH_OPTS[@]}" "$GARAGE_UPDATE_HOST" "$(printf 'pct push %q %q %q --perms %q; rc=$?; rm -f %q; exit $rc' \
-			"$CTID" "$stage" "$dst.new" "$mode" "$stage")"
+		stage=$(ssh -n "${SSH_OPTS[@]}" "$GARAGE_UPDATE_HOST" mktemp)
+		# One remote command uploads, pushes into the container and always
+		# removes the staging file on the host, whatever fails.
+		ssh "${SSH_OPTS[@]}" "$GARAGE_UPDATE_HOST" "$(printf 'cat > %q && pct push %q %q %q --perms %q; rc=$?; rm -f %q; exit $rc' \
+			"$stage" "$CTID" "$stage" "$dst.new" "$mode" "$stage")" <"$src"
 	else
 		ssh "${SSH_OPTS[@]}" "$GARAGE_UPDATE_HOST" "$(printf 'cat > %q && chmod %q %q' "$dst.new" "$mode" "$dst.new")" <"$src"
 	fi
