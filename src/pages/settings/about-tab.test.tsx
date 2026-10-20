@@ -62,6 +62,24 @@ describe("AboutTab", () => {
     expect(screen.getByText("v3.3.0")).toBeInTheDocument();
   });
 
+  it("links to the project repository and its releases", () => {
+    mockData.config = { version: "v3.3.0" };
+
+    render(<AboutTab />);
+
+    expect(
+      screen.getByRole("link", { name: "github.com/t1nk333r/garage-webui-ng" })
+    ).toHaveAttribute("href", "https://github.com/t1nk333r/garage-webui-ng");
+    expect(
+      screen.getByRole("link", {
+        name: "github.com/t1nk333r/garage-webui-ng/releases",
+      })
+    ).toHaveAttribute(
+      "href",
+      "https://github.com/t1nk333r/garage-webui-ng/releases"
+    );
+  });
+
   it("renders unknown when config has no version", () => {
     mockData.config = {};
 
@@ -76,7 +94,7 @@ describe("AboutTab", () => {
       enabled: true,
       current: "v3.3.0",
       latest: "v3.4.0",
-      url: "https://github.com/d7eeem/garage-webui-ng/releases/tag/v3.4.0",
+      url: "https://github.com/t1nk333r/garage-webui-ng/releases/tag/v3.4.0",
       updateAvailable: true,
     };
 
@@ -85,7 +103,7 @@ describe("AboutTab", () => {
     expect(screen.getByText(/Update available: v3\.4\.0/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /view release/i })).toHaveAttribute(
       "href",
-      "https://github.com/d7eeem/garage-webui-ng/releases/tag/v3.4.0"
+      "https://github.com/t1nk333r/garage-webui-ng/releases/tag/v3.4.0"
     );
   });
 

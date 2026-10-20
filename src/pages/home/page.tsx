@@ -16,8 +16,16 @@ import {
 import { cn, readableBytes, ucfirst } from "@/lib/utils";
 import { useBuckets } from "../buckets/hooks";
 import { useMemo } from "react";
+import { useStore } from "zustand";
+import appStore from "@/stores/app-store";
+import ModernDashboard from "./components/modern-dashboard";
 
 const HomePage = () => {
+  const uiStyle = useStore(appStore, (s) => s.uiStyle);
+  return uiStyle === "modern" ? <ModernDashboard /> : <ClassicHomePage />;
+};
+
+const ClassicHomePage = () => {
   const { data: health } = useNodesHealth();
   const { data: buckets } = useBuckets();
 

@@ -1,24 +1,20 @@
-import { cn, ucfirst } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import {
   ArchiveIcon,
   HardDrive,
   KeySquare,
   LayoutDashboard,
-  LogOut,
   Palette,
 } from "lucide-react";
 import { Menu as NavMenu } from "react-daisyui";
 import { Link, useLocation } from "react-router-dom";
-import Button from "../ui/button";
 import Menu, { MenuItem } from "../ui/menu";
-import { themes } from "@/app/themes";
+import { themeLabel, themes } from "@/app/themes";
 import appStore from "@/stores/app-store";
 import garageLogo from "@/assets/garage-logo.svg";
-import { useMutation } from "@tanstack/react-query";
-import api from "@/lib/api";
-import * as utils from "@/lib/utils";
-import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
+import LogoutButton from "./logout-button";
+import { UiStyleMenuItems } from "../modern/appearance-menu";
 
 const pages = [
   { icon: LayoutDashboard, title: "Dashboard", path: "/", exact: true },
@@ -76,36 +72,19 @@ const Sidebar = () => {
               {!auth.isEnabled ? "Theme" : null}
             </>
           }
-          className="max-h-[500px] overflow-y-auto"
+          className="max-h-[500px] flex-nowrap overflow-y-auto"
         >
           {themes.map((theme) => (
             <MenuItem key={theme} onClick={() => appStore.setTheme(theme)}>
-              {ucfirst(theme)}
+              {themeLabel(theme)}
             </MenuItem>
           ))}
+          <UiStyleMenuItems />
         </Menu>
 
         {auth.isEnabled ? <LogoutButton /> : null}
       </div>
     </aside>
-  );
-};
-
-const LogoutButton = () => {
-  const logout = useMutation({
-    mutationFn: () => api.post("/auth/logout"),
-    onSuccess: () => {
-      window.location.href = utils.url("/auth/login");
-    },
-    onError: (err) => {
-      toast.error(err?.message || "Unknown error");
-    },
-  });
-
-  return (
-    <Button className="flex-1" icon={LogOut} onClick={() => logout.mutate()}>
-      Logout
-    </Button>
   );
 };
 

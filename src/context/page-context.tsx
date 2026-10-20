@@ -7,11 +7,16 @@ import React, {
   useEffect,
   useState,
 } from "react";
+import { LucideIcon } from "lucide-react";
 
 type PageContextValues = {
   title: string | null;
   prev: string | null;
   actions: React.ReactNode | null;
+  // Only the modern layout's page header renders these two; the classic
+  // header ignores them.
+  subtitle: React.ReactNode | null;
+  icon: LucideIcon | null;
 };
 
 export const PageContext = createContext<
@@ -25,6 +30,8 @@ const initialValues: PageContextValues = {
   title: null,
   prev: null,
   actions: null,
+  subtitle: null,
+  icon: null,
 };
 
 export const PageContextProvider = ({ children }: PropsWithChildren) => {

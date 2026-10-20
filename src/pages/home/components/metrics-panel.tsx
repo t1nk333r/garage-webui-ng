@@ -8,7 +8,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { readableBytes } from "@/lib/utils";
+import { cn, readableBytes } from "@/lib/utils";
 import { useClusterMetrics } from "../hooks";
 import { ClusterMetrics } from "../types";
 
@@ -40,7 +40,7 @@ const formatMetricLabel = (key: string) =>
 const formatMetricValue = (key: string, value: number) =>
   isBytesMetric(key) ? readableBytes(value) : value.toLocaleString();
 
-const MetricsPanel = () => {
+const MetricsPanel = ({ className }: { className?: string }) => {
   const { data, error, isLoading } = useClusterMetrics();
   const [history, setHistory] = useState<HistoryEntry[]>([]);
 
@@ -58,7 +58,7 @@ const MetricsPanel = () => {
   const metricKeys = Object.keys(data ?? {});
 
   return (
-    <Card className="card-body mt-4 md:mt-8">
+    <Card className={cn("card-body mt-4 md:mt-8", className)}>
       <Card.Title>Cluster Metrics (live)</Card.Title>
 
       {error != null && (
