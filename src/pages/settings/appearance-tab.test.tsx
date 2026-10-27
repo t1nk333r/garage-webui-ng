@@ -28,29 +28,13 @@ vi.hoisted(() => {
 
 describe("AppearanceTab", () => {
   beforeEach(() => {
-    appStore.setState({ theme: "dark-pastel", uiStyle: "modern" });
+    appStore.setState({ theme: "dark-pastel" });
   });
 
-  it("marks the current layout and theme as checked", () => {
+  it("marks the current theme as checked", () => {
     render(<AppearanceTab />);
 
-    expect(screen.getByRole("radio", { name: /^modern/i })).toHaveAttribute(
-      "aria-checked",
-      "true"
-    );
     expect(screen.getByRole("radio", { name: /^dark pastel/i })).toHaveAttribute(
-      "aria-checked",
-      "true"
-    );
-  });
-
-  it("switches to the classic layout", async () => {
-    render(<AppearanceTab />);
-
-    await userEvent.setup().click(screen.getByRole("radio", { name: /^classic/i }));
-
-    expect(appStore.getState().uiStyle).toBe("classic");
-    expect(screen.getByRole("radio", { name: /^classic/i })).toHaveAttribute(
       "aria-checked",
       "true"
     );

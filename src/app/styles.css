@@ -10,13 +10,8 @@
 }
 
 @layer utilities {
+  /* Pages run edge to edge under the page header. */
   .container {
-    @apply max-w-5xl;
-  }
-
-  /* The modern layout runs pages edge to edge under its page header; the
-     classic layout keeps the narrow column. */
-  [data-ui="modern"] .container {
     @apply max-w-none;
   }
 }

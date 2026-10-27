@@ -1,8 +1,6 @@
 import TabView, { Tab } from "@/components/containers/tab-view";
 import Page from "@/context/page-context";
 import { InfoIcon, PaletteIcon, UserIcon, UsersIcon } from "lucide-react";
-import { useStore } from "zustand";
-import appStore from "@/stores/app-store";
 import AboutTab from "./about-tab";
 import AccountTab from "./account-tab";
 import AppearanceTab from "./appearance-tab";
@@ -43,18 +41,12 @@ const tabs: Tab[] = [
 ];
 
 const SettingsPage = () => {
-  const isModern = useStore(appStore, (s) => s.uiStyle) === "modern";
-
   return (
     <>
       <Page title="Settings" />
 
       <div className="container">
-        {isModern ? (
-          <TabView tabs={tabs} variant="bordered" contentClassName="mt-5" />
-        ) : (
-          <TabView tabs={tabs} className="bg-base-100 h-14 px-1.5" />
-        )}
+        <TabView tabs={tabs} variant="bordered" contentClassName="mt-5" />
       </div>
     </>
   );

@@ -32,14 +32,6 @@ export const darkThemes: ReadonlySet<Themes> = new Set<Themes>([
   "night",
 ]);
 
-// "modern" is the sidebar-and-breadcrumb layout; "classic" is the original
-// layout, kept as an option.
-export const uiStyles = ["modern", "classic"] as const;
-
-export type UiStyle = (typeof uiStyles)[number];
-
-export const DEFAULT_UI_STYLE: UiStyle = "modern";
-
 /** Display name for a theme: "dark-pastel" → "Dark Pastel". */
 export const themeLabel = (theme: Themes) =>
   theme
