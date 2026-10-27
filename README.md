@@ -28,7 +28,7 @@ Point it at a running Garage node and you get a clean dashboard for cluster heal
 ## ✨ Key Features
 
 - **📊 Live dashboard** — cluster health, node/partition status, storage usage per bucket (chart and ranked breakdown), recently created buckets, and a live metrics panel (S3 requests, errors, block I/O) parsed from Garage's Prometheus endpoint.
-- **🗂️ Bucket management** — create, inspect, and configure buckets: global/local aliases, quotas, and **static website hosting** with a correct, copy-ready public URL.
+- **🗂️ Bucket management** — create, inspect, and configure buckets: global/local aliases, quotas, and **static website hosting** with a correct, copy-ready public URL and an optional, self-refreshing **directory listing**.
 - **📁 Object browser** — navigate prefixes, upload and download objects, create folders, **bulk-delete** selections, and clean up orphaned **multipart uploads**.
 - **🔗 Object sharing** — generate expiring **presigned links** for private objects and surface public website URLs, all from one dialog.
 - **🔑 Access keys** — create, inspect, and assign keys to buckets with fine-grained read / write / owner permissions.
@@ -219,6 +219,7 @@ Garage WebUI-NG reads your `garage.toml` and lets every setting be overridden by
 | `S3_ENDPOINT_URL` | from `garage.toml` | Garage **S3 API** endpoint (object browse/upload/download). |
 | `S3_PUBLIC_ENDPOINT_URL` | *(unset)* | Public S3 endpoint the browser can reach — enables **presigned share links**. |
 | `S3_WEB_PUBLIC_URL` | *(unset)* | Public base URL for **static website hosting**, overriding the `http://<bucket><root_domain>:<port>` address derived from `garage.toml`. **Must contain a `{bucket}` token** (`https://{bucket}.web.example.com`) — Garage's website endpoint resolves the bucket from the `Host` header only, so a template without the token cannot address any bucket and is treated as unset. Set this whenever a reverse proxy fronts Garage's web endpoint. |
+| `LISTING_REFRESH_INTERVAL_MINUTES` | `10` | How often generated **directory listings** are checked against their buckets, to catch changes made with other S3 clients. Changes made in this UI are picked up within seconds regardless. `0` turns the periodic check off. |
 | `MAX_UPLOAD_SIZE_MB` | `512` | Largest single file the object browser accepts, in MB. A larger upload is refused with **413** before it is buffered. Must not exceed the body-size limit of any reverse proxy in front of the app (nginx `client_max_body_size`, Caddy `request_body max_size`). |
 | `S3_REGION` | `garage` | S3 region name. |
 | `CONFIG_PATH` | `/etc/garage.toml` | Path to the Garage config file to read. |
@@ -290,9 +291,40 @@ bucket's Overview tab; there is no separate ACL or "public" flag.
      to a private address, an HTTP-01 challenge cannot reach it to validate,
      so a **DNS-01** challenge is the only way to issue that certificate.
 
-There is no anonymous directory listing — Garage serves the configured index
-document for a prefix and the error document otherwise, never a listing of
-the bucket root.
+### Directory listings
+
+Garage itself never lists a folder: its website endpoint serves the configured
+index document for a path ending in `/` and the error document otherwise, and
+anonymous visitors cannot list a bucket. A website bucket therefore answers
+**404 on its own root** unless it contains an `index.html`.
+
+Turn on **Directory listing** under the bucket's website settings to have the
+web UI write one browsable page per folder — an `index.html` that lists the
+folder's subfolders and files with their size and date, in the style of an
+nginx autoindex:
+
+- **It publishes every file name.** With website access alone, a visitor can
+  fetch only a file whose exact name they know; with a listing they can see all
+  of them. Enabling it asks for confirmation.
+- **The pages are real objects.** You will see an `index.html` in every folder
+  of the object browser. They are static snapshots, kept current two ways:
+  within about five seconds of an upload or deletion made in this UI, and every
+  `LISTING_REFRESH_INTERVAL_MINUTES` for changes made with other S3 clients.
+  A page whose folder has not changed is not rewritten.
+- **Your own pages are never touched.** Generated pages carry the S3 metadata
+  `x-amz-meta-garage-webui-ng-generated: 1`, and the UI checks for it
+  immediately before every write and every delete. A bucket whose root already
+  has an `index.html` of yours cannot have a listing; a subfolder with its own
+  `index.html` keeps it and is skipped.
+- **Turning it off removes only the generated pages.** Website access stays on
+  and every direct file URL keeps working; folder URLs return 404 again.
+- **It needs a read+write key** assigned to the bucket, like the object
+  browser, and the index document must be a plain file name. It is refused
+  for buckets of more than 100,000 objects.
+- The pages are self-contained HTML with no scripts and send
+  `Cache-Control: no-cache`, so browsers revalidate rather than show a stale
+  listing. If a reverse proxy in front of the website endpoint overrides cache
+  headers, exempt HTML from that rule.
 
 ### Public access is opt-in
 

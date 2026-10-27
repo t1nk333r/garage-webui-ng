@@ -146,6 +146,27 @@ func TestIsViewerAllowed(t *testing.T) {
 			want:   false,
 		},
 		{
+			// Reading whether a bucket's directory listing is on changes
+			// nothing.
+			name:   "directory listing status is allowed",
+			method: http.MethodGet,
+			target: "/listing/b",
+			want:   true,
+		},
+		{
+			// Generating the listing writes an index page into every folder.
+			name:   "generating a directory listing is denied",
+			method: http.MethodPut,
+			target: "/listing/b",
+			want:   false,
+		},
+		{
+			name:   "removing a directory listing is denied",
+			method: http.MethodDelete,
+			target: "/listing/b",
+			want:   false,
+		},
+		{
 			// The privilege leak this check exists to close: /admin/users is a
 			// GET, and "every GET is allowed" would otherwise hand a read-only
 			// viewer the full roster of accounts, roles and sign-in times.

@@ -34,9 +34,20 @@ vi.mock("@/hooks/useConfig", () => ({
   useConfig: () => ({ data: {} }),
 }));
 
+const mockListing = vi.hoisted(() => ({
+  data: undefined as { enabled: boolean } | undefined,
+}));
+
 vi.mock("../hooks", () => ({
   useUpdateBucket: () => mockUpdateMutation,
   useObjectExists: () => ({ presence: "unknown", isLoading: false }),
+  useDirectoryListing: () => mockListing,
+}));
+
+// The listing section has its own tests (directory-listing.test.tsx); here it
+// only has to stay out of the way.
+vi.mock("./overview-directory-listing", () => ({
+  default: () => null,
 }));
 
 // The "info" link button renders react-router's <Link>, which needs a
@@ -51,6 +62,7 @@ const renderSection = () =>
 describe("WebsiteAccessSection", () => {
   beforeEach(() => {
     mockUpdateMutation.mutate.mockClear();
+    mockListing.data = undefined;
     mockBucket.bucket = {
       id: "bucket-1",
       websiteAccess: false,
@@ -154,5 +166,25 @@ describe("WebsiteAccessSection", () => {
     });
 
     vi.useRealTimers();
+  });
+
+  it("locks the index document while a directory listing is published", () => {
+    mockBucket.bucket = {
+      id: "bucket-1",
+      websiteAccess: true,
+      websiteConfig: {
+        indexDocument: "index.html",
+        errorDocument: "error/400.html",
+      },
+    };
+    mockListing.data = { enabled: true };
+
+    renderSection();
+
+    expect(screen.getByDisplayValue("index.html")).toBeDisabled();
+    expect(screen.getByDisplayValue("error/400.html")).not.toBeDisabled();
+    expect(
+      screen.getByText(/turn off the directory listing to change this/i)
+    ).toBeInTheDocument();
   });
 });
