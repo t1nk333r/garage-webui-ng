@@ -22,7 +22,9 @@ import (
 //     Browse write handlers);
 //   - a periodic sweep of every website bucket, every
 //     LISTING_REFRESH_INTERVAL_MINUTES, which catches changes made by other
-//     S3 clients.
+//     S3 clients. The first sweep runs listingDebounce after startup, so a
+//     new release rewrites pages it renders differently straight away
+//     instead of a full interval later.
 //
 // Both run in listingUpdate mode, so they only refresh buckets whose listing
 // is already on and never switch one on.
@@ -157,11 +159,14 @@ func (lr *listingRefresher) Pending(bucket string) bool {
 func (lr *listingRefresher) loop(ctx context.Context) {
 	defer lr.wg.Done()
 
-	var sweep <-chan time.Time
+	var sweep, firstSweep <-chan time.Time
 	if lr.interval > 0 {
 		ticker := time.NewTicker(lr.interval)
 		defer ticker.Stop()
 		sweep = ticker.C
+		first := time.NewTimer(lr.debounce)
+		defer first.Stop()
+		firstSweep = first.C
 	}
 
 	for {
@@ -181,6 +186,9 @@ func (lr *listingRefresher) loop(ctx context.Context) {
 		case <-lr.wake:
 		case <-fire:
 			lr.fireDue(ctx)
+		case <-firstSweep:
+			firstSweep = nil
+			lr.startSweep(ctx)
 		case <-sweep:
 			lr.startSweep(ctx)
 		}

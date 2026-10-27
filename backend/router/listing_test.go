@@ -669,6 +669,29 @@ func TestListingSweepRefreshesWebsiteBuckets(t *testing.T) {
 	}
 }
 
+// A new release can render pages differently; the first sweep after startup
+// rewrites them without waiting a whole interval or for someone to upload.
+func TestListingRefresherSweepsSoonAfterStart(t *testing.T) {
+	const bucket = "listing-start-sweep"
+	f := newListingFixture(t, bucket)
+	f.PutTestObject("a.txt", "a", "text/plain")
+	mustListing(t, http.MethodPut, bucket, http.StatusOK)
+	f.PutTestObject("hp/new.png", "n", "image/png")
+
+	lr := newListingRefresher(10*time.Millisecond, time.Hour)
+	lr.Start(context.Background())
+	t.Cleanup(lr.Stop)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for !f.HasObject("hp/index.html") {
+		if time.Now().After(deadline) {
+			t.Fatal("no sweep ran after startup")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	assertGenerated(t, f, "hp/index.html")
+}
+
 func TestStopEndsTheRefresher(t *testing.T) {
 	lr := newListingRefresher(time.Hour, time.Hour)
 	lr.Start(context.Background())
