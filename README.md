@@ -11,7 +11,7 @@
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](backend/go.mod)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](package.json)
 
-[Features](#-key-features) · [Screenshots](#-screenshots) · [Quick Start](#-installation) · [Configuration](#-configuration) · [API](#-api) · [Authentication](docs/authentication.md) · [Upgrading](docs/UPGRADING.md) · [Roadmap](#-roadmap)
+[Features](#-key-features) · [Screenshots](#-screenshots) · [Quick Start](#-installation) · [Configuration](#️-configuration) · [API](#-api) · [Authentication](docs/authentication.md) · [Upgrading](docs/UPGRADING.md) · [Roadmap](#️-roadmap)
 
 <img src="docs/screenshots/dashboard-dark.png" alt="Garage WebUI-NG dashboard" width="860" />
 
@@ -130,55 +130,27 @@ The user database is created at `./data/garage-webui-ng.db` relative to the work
 
 ### Updating
 
-The app holds your Garage admin token, so downloading and executing code inside that process is a risk this project treats carefully: by default it does not do it for you. Releases are checksummed and signed (see **Verifying a release** below), and a binary install with a signing key configured can optionally verify and stage an update itself from the UI — see **In-browser update** below — but nothing is ever installed without an explicit, fail-closed signature and checksum check, and the process never restarts itself unless you separately ask it to.
-
-The **About** tab (Settings → About) shows the version you're running and whether a newer release exists (set `UPDATE_CHECK_ENABLED=true` to enable that check). If it detects that the running executable is writable, it also shows the exact `systemctl stop` / `install` / `systemctl start` sequence for a binary install, alongside the in-browser **Update now** button when this build can use it. Otherwise — a container image, or a hardened service whose binary it cannot write — it just says the deployment is updated from outside the app, since a container and a locked-down systemd service are updated differently and there's no way to safely guess which one you're running.
-
-### In-browser update
-
-A binary install whose build has a release signing key configured can update itself from Settings → About, with an **admin-only** "Update now" button:
-
-1. Downloads the release binary, `SHA256SUMS`, and `SHA256SUMS.sig` for the newer version already shown in that tab.
-2. Verifies the ed25519 signature over `SHA256SUMS` against the build's configured public key **first** — `SHA256SUMS` is treated as untrusted input until that check passes, since it is otherwise attacker-controlled.
-3. Only then checks the downloaded binary's SHA-256 against the matching entry in `SHA256SUMS`.
-4. If both checks pass, atomically replaces the running executable on disk, keeping the previous binary at `<path>.bak` as a manual rollback.
-
-Any failure — an unconfigured signing key, a bad signature, a checksum mismatch, or a filesystem error — aborts with nothing installed and nothing left behind. There is no way to skip verification; an unconfigured signing key simply disables the feature rather than falling back to an unverified install.
-
-**A restart is required to run the staged binary, and the app does not do this for you by default.** The process that just downloaded the update cannot reliably restart itself — if it exits and nothing is configured to bring it back, the only way back in is SSH. So the default request only swaps the binary; the running process keeps serving the old version until you restart the service. A separate, unchecked-by-default "restart automatically" option will make the process trigger its own graceful shutdown after a successful swap, but only use it if your service manager (systemd, Docker's restart policy, etc.) is actually configured to bring the process back up — otherwise that option takes your console down.
-
-**Running Garage and the web UI side by side under systemd** (an LXC container, a VM, bare metal)? [`contrib/garage-update`](contrib/garage-update/README.md) updates both from the command line — `garage-update all` on the host, or `garage-update-remote all` from your workstation — verifying each release, backing up binary and data, and rolling back automatically if the new version does not come up healthy. It also works with the hardened `ProtectSystem=strict` unit that the in-browser updater cannot write through.
-
-**Docker deployments cannot use this** — the executable lives inside the image and isn't writable by the running container in any way this feature will use. Pull a new image instead (see **Docker Deployment** below).
+- **Docker** — pull the new image and recreate the container (`docker compose pull && docker compose up -d`). Accounts live on the `/data` volume and survive.
+- **Binary, from the browser** — **Settings → About** shows the running version and, with `UPDATE_CHECK_ENABLED=true`, whether a newer release exists. An administrator's **Update now** downloads it and installs it only after two checks pass: the ed25519 signature over `SHA256SUMS` against the public key compiled into the running binary, then the binary's SHA-256 against `SHA256SUMS`. Any failure installs nothing; the previous binary is kept as `<path>.bak`. The running process keeps serving the old version until the service restarts. **Restart the service automatically after installing** makes it shut itself down after the swap — tick it only when a service manager (systemd, a Docker restart policy) brings it back. When the executable is writable, About also shows the manual `systemctl stop` / `install` / `systemctl start` sequence. The button is unavailable when the build has no release key or the process cannot write its own executable (any container, a `ProtectSystem=strict` unit); About then says the deployment is updated from outside the app.
+- **Binary, from the command line** — for Garage and the web UI side by side under systemd (LXC, VM, bare metal), [`contrib/garage-update`](contrib/garage-update/README.md) updates both: `garage-update all` on the host, or `garage-update-remote all` from a workstation. It verifies each release, backs up binary and data, and rolls back automatically if the new version does not come up healthy.
 
 ### Verifying a release
 
-Every release since this feature landed ships three extra assets alongside the binaries: `SHA256SUMS` (a checksum of each binary), `SHA256SUMS.sig` (an ed25519 signature of `SHA256SUMS`), and the binaries themselves. Verification uses only standard tools plus the `relsign` helper in this repo — no third-party CLI, no network call.
-
-**As a user, verifying a download:**
+Every release publishes the binaries with `SHA256SUMS` (their checksums) and `SHA256SUMS.sig` (an ed25519 signature of `SHA256SUMS`). To verify a download with `sha256sum` and a checkout of this repository:
 
 ```bash
-# 1. Check the binary's hash matches the published SHA256SUMS.
+# 1. The binary matches the published checksums.
 sha256sum -c SHA256SUMS --ignore-missing
 
-# 2. Check SHA256SUMS itself was signed by the project's release key.
-#    <public key> is the hex value hardcoded in backend/release_key.go on
-#    the tag you downloaded. Run from a checkout of this repo's `backend/`
-#    directory (go run fetches nothing else — it just compiles the tool).
+# 2. The checksums were signed by the project's release key. <public key> is
+#    releasePublicKey in backend/release_key.go at the tag you downloaded;
+#    run this from backend/.
 go run ./cmd/relsign verify -pub <public key> -in SHA256SUMS -sig SHA256SUMS.sig
 ```
 
-Both must pass. Step 1 alone only proves the binary matches the checksum file — it says nothing about who produced that file. Step 2 is what ties the checksums back to this project.
+Both must pass: the first alone says nothing about who produced the checksums.
 
-**One-time setup for maintainers (already done for this repository — documented for anyone forking or rotating the key):**
-
-1. From `backend/`, run `go run ./cmd/relsign keygen`. **stdout carries only the bare private key hex** — nothing else — so it's safe to pipe straight into a secret store; a labelled public key (plus a reminder note) is printed to stderr instead.
-2. Store stdout as the GitHub Actions repository secret `RELEASE_SIGNING_KEY` (for example `go run ./cmd/relsign keygen 2>/dev/null | gh secret set RELEASE_SIGNING_KEY`), which the release job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) reads for the signing step. **Never commit the private key, paste it into an issue/PR, or let it appear in a log** — the pipeline reads it only from that secret, and `relsign sign` only reads it from an environment variable, never a command-line flag, precisely so it can't leak into CI logs or the process table. Do not add a label, quotes, or a trailing newline when storing it — anything besides the bare hex will fail to decode (this broke a release once).
-3. Paste the public key into `releasePublicKey` in `backend/release_key.go` and commit that (the public key is not a secret).
-
-**Losing the private key** means rotating it: generate a new pair, replace the `RELEASE_SIGNING_KEY` secret, `backend/release_key.go` and `WEBUI_PUBKEY` in `contrib/garage-update/garage-update` (a backend test fails until the last two match), and note the rotation in the release notes. Older binaries built with the previous public key baked in will not be able to verify releases signed with the new key — there is no fallback to "unsigned but trusted anyway," by design.
-
-The key was rotated once, for `v3.9.1`: the original private half was lost when the `d7eeem` GitHub account (and with it the `RELEASE_SIGNING_KEY` repository secret) went away, so releases up to `v3.8.x` are signed with a key that no longer exists and `v3.9.1` onwards use the key in `release_key.go` today. (`v3.9.0` was tagged but never published — its release build could not sign.) An in-app self-update from a pre-`v3.9.1` binary will correctly refuse the new release; download and verify manually once, then updates resume working.
+Releases up to `v3.8.x` were signed with an earlier key that has since been lost; `v3.9.1` and later use the current one. A binary older than `v3.9.1` therefore refuses to update itself to a newer release — update it by hand once. Key management: [`docs/ci-and-releases.md`](docs/ci-and-releases.md).
 
 ## 🐳 Docker Deployment
 
@@ -188,7 +160,7 @@ The image is multi-arch (`linux/amd64`, `linux/arm64`), runs as a **non-root** u
 docker pull ghcr.io/t1nk333r/garage-webui-ng:latest
 ```
 
-Available tags: `latest`, `2`, `2.0`, `2.0.0`, and `sha-<commit>`.
+Tags: `latest` and `main` follow the `main` branch and `sha-<commit>` pins one of its builds; release `vX.Y.Z` is published as `X.Y.Z`, `X.Y` and `X`. Pin a release in production.
 
 The image declares `VOLUME ["/data"]` for the user database and ships that directory owned by uid `65532`, so a **named volume** works out of the box. If you bind-mount a host directory instead, `chown 65532:65532` it first — otherwise startup fails with `cannot open user database`.
 
@@ -218,7 +190,7 @@ Garage WebUI-NG reads your `garage.toml` and lets every setting be overridden by
 | `API_ADMIN_KEY_FILE` | *(unset)* | Path to a file holding the admin token; wins over `API_ADMIN_KEY`. Trailing newline stripped. Use with Compose `secrets:` / Kubernetes Secret volumes. |
 | `S3_ENDPOINT_URL` | from `garage.toml` | Garage **S3 API** endpoint (object browse/upload/download). |
 | `S3_PUBLIC_ENDPOINT_URL` | *(unset)* | Public S3 endpoint the browser can reach — enables **presigned share links**. |
-| `S3_WEB_PUBLIC_URL` | *(unset)* | Public base URL for **static website hosting**, overriding the `http://<bucket><root_domain>:<port>` address derived from `garage.toml`. **Must contain a `{bucket}` token** (`https://{bucket}.web.example.com`) — Garage's website endpoint resolves the bucket from the `Host` header only, so a template without the token cannot address any bucket and is treated as unset. Set this whenever a reverse proxy fronts Garage's web endpoint. |
+| `S3_WEB_PUBLIC_URL` | *(unset)* | Public base URL for **static website hosting**, e.g. `https://{bucket}.web.example.com`, replacing the `http://<bucket><root_domain>:<port>` address derived from `garage.toml`. **Must contain `{bucket}`** — Garage picks the bucket from the `Host` header alone — or it is ignored. Set it whenever a reverse proxy fronts Garage's web endpoint. |
 | `LISTING_REFRESH_INTERVAL_MINUTES` | `10` | How often generated **directory listings** are checked against their buckets, to catch changes made with other S3 clients. Changes made in this UI are picked up within seconds regardless. `0` turns the periodic check off. |
 | `MAX_UPLOAD_SIZE_MB` | `512` | Largest single file the object browser accepts, in MB. A larger upload is refused with **413** before it is buffered. Must not exceed the body-size limit of any reverse proxy in front of the app (nginx `client_max_body_size`, Caddy `request_body max_size`). |
 | `S3_REGION` | `garage` | S3 region name. |
@@ -269,15 +241,12 @@ bucket's Overview tab; there is no separate ACL or "public" flag.
    credentials.
 3. Upload an object in **Browse**. When it finishes, the upload panel offers
    a **Copy URL** action; the same permanent URL is also on the row's
-   **Share** dialog and as an **[Open]** link.
-4. Set `S3_WEB_PUBLIC_URL` (see [`.env.example`](.env.example)) so those URLs
-   point at the address your users can actually reach. The template **must
-   contain a `{bucket}` token** (e.g. `https://{bucket}.web.example.com`) —
-   Garage's website endpoint is virtual-host only, resolving the bucket
-   exclusively from the `Host` header, so a template without the token cannot
-   address any bucket and is treated as unset. Without it, URLs are derived
-   from `garage.toml`'s `[s3_web] root_domain`, which is usually only
-   reachable inside your network.
+   **Share** dialog and as an **[Open]** link. The **Website** link at the end
+   of the bucket's tab row opens the site itself.
+4. Set `S3_WEB_PUBLIC_URL` (see [Configuration](#️-configuration)) so those
+   URLs point at an address your users can reach. Without it they are derived
+   from `garage.toml`'s `[s3_web] root_domain`, which is usually reachable only
+   inside your network.
 
    Two deployment details that are easy to miss:
    - Whatever fronts this hostname must route the request to Garage's
@@ -425,6 +394,9 @@ Full reference: [`docs/authentication.md`](docs/authentication.md).
 - [x] Multi-user auth + read-only viewer role
 - [x] Structured audit log
 - [x] Persistent user store, first-run setup wizard & in-app user management
+- [x] Object-name search in the object browser
+- [x] Signed releases & verified in-browser update
+- [x] Generated directory listings for website buckets
 - [ ] **Full in-browser multipart upload** (resumable, large-file uploads)
 - [ ] Richer static-website hosting management surface
 - [ ] Historical metrics (time-series) view
@@ -455,7 +427,7 @@ htpasswd -bnBC 10 "" 'your-password' | tr -d ':\n' | sed 's/^$2y/$2a/'
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please open an issue to discuss substantial changes first. Before submitting a PR, make sure `pnpm run typecheck`, `pnpm run test`, `pnpm run build`, and the backend `go build ./... && go vet ./... && go test -race ./...` all pass.
+Contributions are welcome! Please open an issue to discuss substantial changes first. Before submitting a PR, make sure `pnpm run typecheck`, `pnpm run build`, `go build ./... && go vet ./...` and the tests your change reaches pass (see [Development](#️-development)).
 
 ## 🛠️ Development
 
@@ -481,9 +453,16 @@ cd backend
 go build ./... && go vet ./... && go test -race ./...
 ```
 
+To run only the tests your change reaches, as CI does:
+
+```bash
+pnpm exec vitest related --run <changed files…>
+git diff --name-only --no-renames main | .github/scripts/go-affected.sh | xargs -r go -C backend test -race
+```
+
 A **release build** (single binary with the embedded UI) is produced by copying `dist/` into `backend/ui/dist/` and running `make` (`-tags=prod`); the [`Dockerfile`](Dockerfile) does this automatically. See [CLAUDE.md](CLAUDE.md) for conventions and architecture notes.
 
-CI and releases run on GitHub Actions, in [`.github/workflows/ci.yml`](.github/workflows/ci.yml): checks on every push to `main` and every pull request, the multi-arch image on `main`, and on a `v*` tag the versioned image plus a GitHub release with signed binaries. The release job needs one repository secret, `RELEASE_SIGNING_KEY` (see [Verifying a release](#verifying-a-release)), and refuses to publish when it is missing or does not match `backend/release_key.go`; everything else uses the workflow's own token.
+CI and releases run on GitHub Actions, in [`.github/workflows/ci.yml`](.github/workflows/ci.yml). Pushes to `main` and pull requests run only the tests the change can reach and skip a side it does not touch; a release tag, the nightly run and a manual run test everything. `main` publishes the image; a `v*` tag publishes the versioned image and a GitHub release with signed binaries. How the scope is decided, how to cut a release, and the signing key: [`docs/ci-and-releases.md`](docs/ci-and-releases.md).
 
 ## 📄 License
 
