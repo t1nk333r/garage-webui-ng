@@ -1,6 +1,18 @@
 # 063 — A default index page for public buckets, removable without closing access
 
-**Status:** TODO · **Priority:** P2 · **Effort:** M · **Risk:** MED · **Depends on:** —
+**Status:** DONE (widened — see below) · **Priority:** P2 · **Effort:** M · **Risk:** MED · **Depends on:** —
+
+> **As built (branch `feat/directory-listing`).** The maintainer asked for
+> browsable listings on public sites, so this was widened beyond the plan
+> below: one generated page **per folder**, refreshed automatically (5 s after
+> an upload or delete in the UI, and on a `LISTING_REFRESH_INTERVAL_MINUTES`
+> sweep). Both were listed as out of scope here. The safety rule and the STOP
+> condition (no live listing) are unchanged. The routes went straight to their
+> own prefix, `GET|PUT|DELETE /listing/{bucket}`, rather than under
+> `/browse/{bucket}/index-page`. Enabled state is "the root page exists and is
+> marked"; the in-memory last-run record replaces the object-count metadata.
+> Implementation: `backend/router/listing.go`, `listing_refresher.go`,
+> `src/pages/buckets/manage/overview/overview-directory-listing.tsx`.
 **Stamped against:** `main` `41f1030` (v3.9.1), 2026-08-31.
 
 ## The problem

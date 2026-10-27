@@ -103,6 +103,19 @@ out here, so an agent working nearby doesn't fly blind:
   pastel's shape tokens; a new dark theme must also join `darkThemes`
   (`src/app/themes.ts`) or charts use the light palette. The persisted store is
   versioned — change its shape through `migrateAppState`, never in place.
+- **Directory listings.** `backend/router/listing.go` writes one generated
+  `index.html` per folder into a website bucket (Garage never lists folders),
+  and `listing_refresher.go` keeps them current: a 5 s debounce after the
+  Browse write handlers call `notifyListing`, plus a sweep every
+  `LISTING_REFRESH_INTERVAL_MINUTES`. This is the one place the backend
+  writes to Garage on its own, not as a gateway for a request. Whether
+  listing is on is read from the bucket (root page carries the
+  `x-amz-meta-garage-webui-ng-generated` marker), never stored locally. The
+  safety rule is absolute: HEAD before every write, re-HEAD before every
+  delete, and an unmarked object is never written over or removed —
+  `TestListing*RechecksOwnership` fail if either check is dropped.
+  Background runs never create the root page, which is what keeps a
+  concurrent disable from being undone.
 - **Host updater.** `contrib/garage-update/` is plain bash with no build step:
   `garage-update` updates Garage and WebUI-NG on a systemd binary install
   (verify → back up → swap → health check → automatic rollback) and
