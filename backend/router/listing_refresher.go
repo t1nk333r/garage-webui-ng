@@ -268,7 +268,7 @@ func (lr *listingRefresher) refreshBucket(ctx context.Context, info schema.Bucke
 
 	syncCtx, cancel := context.WithTimeout(ctx, listingSyncTimeout)
 	defer cancel()
-	res, err := syncListing(syncCtx, client, bucket, indexDoc, listingUpdate)
+	res, err := syncListing(syncCtx, client, bucket, indexDoc, listingUpdate, nil)
 	if errors.Is(err, errListingNotEnabled) || errors.Is(err, errListingConflict) {
 		lr.report(bucket, nil)
 		return

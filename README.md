@@ -302,7 +302,9 @@ Turn on **Directory listing** under the bucket's website settings to have the
 web UI write one browsable page per folder — an `index.html` that lists the
 folder's subfolders and files with their size and date, in the style of an
 nginx autoindex. Click a column header to sort by name, size or date; folders
-always stay on top:
+always stay on top. The pages take their colors from a web UI theme — the one
+you are using when you publish the listing, or any other picked under **Page
+theme** — or follow each visitor's own light or dark preference:
 
 - **It publishes every file name.** With website access alone, a visitor can
   fetch only a file whose exact name they know; with a listing they can see all

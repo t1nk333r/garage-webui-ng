@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"net/http"
 	"net/url"
 	"sort"
@@ -75,6 +76,9 @@ var (
 
 	// listingLockWait is how long a removal waits for a running refresh.
 	listingLockWait = 30 * time.Second
+
+	// listingRequestMaxBytes bounds the body of PUT /listing, a theme.
+	listingRequestMaxBytes int64 = 8 << 10
 )
 
 var (
@@ -233,23 +237,38 @@ func isGeneratedListing(meta map[string]string) bool {
 // headIndex reports who owns key. It is the only thing a write or delete
 // trusts, and it is re-run immediately before each one.
 func headIndex(ctx context.Context, client *s3.Client, bucket, key string) (indexState, error) {
+	state, _, err := headIndexMeta(ctx, client, bucket, key)
+	return state, err
+}
+
+// headIndexMeta is headIndex that also returns the object's user metadata.
+func headIndexMeta(ctx context.Context, client *s3.Client, bucket, key string) (indexState, map[string]string, error) {
 	out, err := client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	})
 	if err != nil {
 		if isNotFoundErr(err) {
-			return indexAbsent, nil
+			return indexAbsent, nil, nil
 		}
-		return indexAbsent, fmt.Errorf("cannot read %q: %w", key, err)
+		return indexAbsent, nil, fmt.Errorf("cannot read %q: %w", key, err)
 	}
 	if isGeneratedListing(out.Metadata) {
-		return indexGenerated, nil
+		return indexGenerated, out.Metadata, nil
 	}
-	return indexForeign, nil
+	return indexForeign, out.Metadata, nil
 }
 
-func putListingPage(ctx context.Context, client *s3.Client, bucket, key string, body []byte) error {
+// listingPageMeta is the user metadata of a page rendered with theme.
+func listingPageMeta(theme schema.DirectoryListingTheme) map[string]string {
+	meta := map[string]string{listingMarkerKey: listingMarkerValue}
+	if v := encodeListingTheme(theme); v != "" {
+		meta[listingThemeKey] = v
+	}
+	return meta
+}
+
+func putListingPage(ctx context.Context, client *s3.Client, bucket, key string, body []byte, meta map[string]string) error {
 	_, err := client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        aws.String(bucket),
 		Key:           aws.String(key),
@@ -259,7 +278,7 @@ func putListingPage(ctx context.Context, client *s3.Client, bucket, key string, 
 		// Garage stores this and serves it back from the website endpoint,
 		// so browsers revalidate instead of showing a stale listing.
 		CacheControl: aws.String("no-cache"),
-		Metadata:     map[string]string{listingMarkerKey: listingMarkerValue},
+		Metadata:     meta,
 	})
 	if err != nil {
 		return fmt.Errorf("cannot write %q: %w", key, err)
@@ -476,12 +495,14 @@ type listingRow struct {
 }
 
 type listingPageData struct {
-	Path    string
-	Crumbs  []listingCrumb
-	Parent  bool
-	Rows    []listingRow
-	Hidden  int
-	Summary string
+	Theme    string
+	ThemeCSS template.CSS
+	Path     string
+	Crumbs   []listingCrumb
+	Parent   bool
+	Rows     []listingRow
+	Hidden   int
+	Summary  string
 }
 
 // listingScript sorts the table when a column header is clicked: folders stay
@@ -551,11 +572,13 @@ var listingScriptHash = func() string {
 // listingPageTemplate is self-contained: inline CSS, listingScript and
 // nothing else, no external fetch, and a meta CSP that forbids anything
 // more. Every link is relative, so the page works whatever host or path the
-// site is served under. The sort arrow is declared twice: the second gives it
+// site is served under. Colors come from listingThemeCSS; the folder and file
+// icons are lucide's, as in the web UI, drawn from an inline sprite because
+// the CSP admits no image fetch. The sort arrow is declared twice: the second gives it
 // empty alt text, since aria-sort already announces the order, and the first
 // is the fallback for browsers that cannot parse that.
 var listingPageTemplate = template.Must(template.New("listing").Parse(`<!DOCTYPE html>
-<html lang="en">
+<html lang="en"{{with .Theme}} data-theme="{{.}}"{{end}}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -563,8 +586,7 @@ var listingPageTemplate = template.Must(template.New("listing").Parse(`<!DOCTYPE
 <meta name="generator" content="Garage WebUI-NG">
 <title>Index of {{.Path}}</title>
 <style>
-:root{color-scheme:light dark;--fg:#1f2328;--muted:#59636e;--bg:#fff;--line:#d1d9e0;--link:#0969da;--hover:#f6f8fa}
-@media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--muted:#9198a1;--bg:#0d1117;--line:#30363d;--link:#4493f8;--hover:#151b23}}
+{{.ThemeCSS}}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 main{max-width:960px;margin:0 auto;padding:2rem 1rem}
 h1{font-size:1.25rem;font-weight:600;margin:0 0 1rem;overflow-wrap:anywhere}
@@ -579,6 +601,10 @@ th button:hover{color:var(--fg)}
 th[aria-sort=ascending] button::after{content:" \2191";content:" \2191"/""}
 th[aria-sort=descending] button::after{content:" \2193";content:" \2193"/""}
 td.n{overflow-wrap:anywhere}
+.sprite{position:absolute;width:0;height:0;overflow:hidden}
+.i{width:1.1em;height:1.1em;vertical-align:-.2em;margin-right:.5em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.i.d{color:var(--accent)}
+.i.f{color:var(--muted)}
 .s,.d{white-space:nowrap;color:var(--muted);font-variant-numeric:tabular-nums}
 .s{text-align:right}
 tbody tr:hover{background:var(--hover)}
@@ -587,18 +613,19 @@ footer{margin-top:1.5rem}
 </style>
 </head>
 <body>
+<svg class="sprite" aria-hidden="true"><symbol id="i-d" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol><symbol id="i-f" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></symbol></svg>
 <main>
 <h1>Index of {{range .Crumbs}}<a href="{{.Href}}">{{.Name}}</a>{{end}}</h1>
 <table>
 <thead><tr><th scope="col" data-sort="name" aria-sort="ascending">Name</th><th scope="col" class="s" data-sort="size">Size</th><th scope="col" class="d" data-sort="time">Last modified (UTC)</th></tr></thead>
 {{- if .Parent}}
 <tbody>
-<tr><td class="n"><a href="../">../</a></td><td class="s">-</td><td class="d">-</td></tr>
+<tr><td class="n"><a href="../"><svg class="i d" aria-hidden="true"><use href="#i-d"/></svg>../</a></td><td class="s">-</td><td class="d">-</td></tr>
 </tbody>
 {{- end}}
 <tbody id="entries">
 {{- range .Rows}}
-<tr{{if not .Dir}} data-size="{{.Bytes}}" data-time="{{.Unix}}"{{end}}><td class="n"><a href="{{.Href}}">{{.Name}}</a></td>{{if .Dir}}<td class="s">-</td><td class="d">-</td>{{else}}<td class="s" title="{{.Bytes}} bytes">{{.Size}}</td><td class="d">{{.Modified}}</td>{{end}}</tr>
+<tr{{if not .Dir}} data-size="{{.Bytes}}" data-time="{{.Unix}}"{{end}}><td class="n"><a href="{{.Href}}">{{if .Dir}}<svg class="i d" aria-hidden="true"><use href="#i-d"/></svg>{{else}}<svg class="i f" aria-hidden="true"><use href="#i-f"/></svg>{{end}}{{.Name}}</a></td>{{if .Dir}}<td class="s">-</td><td class="d">-</td>{{else}}<td class="s" title="{{.Bytes}} bytes">{{.Size}}</td><td class="d">{{.Modified}}</td>{{end}}</tr>
 {{- end}}
 </tbody>
 </table>
@@ -620,14 +647,16 @@ footer{margin-top:1.5rem}
 // a page whose stored ETag (Garage uses the body's MD5) already matches. So
 // nothing here may depend on the current time; the footer quotes the newest
 // file's own timestamp instead.
-func renderListingPage(f *listingFolder, unlisted int) ([]byte, error) {
+func renderListingPage(f *listingFolder, unlisted int, theme schema.DirectoryListingTheme) ([]byte, error) {
 	segs := listingSegments(f.prefix)
 	depth := len(segs)
 
 	data := listingPageData{
-		Path:   "/" + f.prefix,
-		Parent: depth > 0,
-		Crumbs: []listingCrumb{{Name: "/", Href: listingUp(depth)}},
+		Theme:    theme.Name,
+		ThemeCSS: listingThemeCSS(theme),
+		Path:     "/" + f.prefix,
+		Parent:   depth > 0,
+		Crumbs:   []listingCrumb{{Name: "/", Href: listingUp(depth)}},
 	}
 	for i, s := range segs {
 		data.Crumbs = append(data.Crumbs, listingCrumb{Name: s + "/", Href: listingUp(depth - i - 1)})
@@ -774,10 +803,13 @@ func (e *firstError) get() error {
 // listingCreate mode a foreign root is a conflict. The root page is then
 // written before any other, so a run that fails halfway still leaves the
 // listing enabled and the next refresh finishes it.
-func syncListing(ctx context.Context, client *s3.Client, bucket, indexDoc string, mode listingMode) (listingResult, error) {
+//
+// theme, already normalized, replaces the pages' theme; nil keeps the one
+// the root page carries, which is how a refresh preserves it.
+func syncListing(ctx context.Context, client *s3.Client, bucket, indexDoc string, mode listingMode, theme *schema.DirectoryListingTheme) (listingResult, error) {
 	var res listingResult
 
-	rootState, err := headIndex(ctx, client, bucket, indexDoc)
+	rootState, rootMeta, err := headIndexMeta(ctx, client, bucket, indexDoc)
 	if err != nil {
 		return res, err
 	}
@@ -795,6 +827,12 @@ func syncListing(ctx context.Context, client *s3.Client, bucket, indexDoc string
 	if !complete {
 		return res, fmt.Errorf("%w (more than %d)", errListingTooLarge, int(listingWalkPageSize)*listingWalkMaxPages)
 	}
+
+	pageTheme := listingThemeFromMeta(rootMeta)
+	if theme != nil {
+		pageTheme = *theme
+	}
+	pageMeta := listingPageMeta(pageTheme)
 
 	tree, indexOnly := buildListingTree(objs, indexDoc)
 	res.objects, res.unlisted = tree.objects, tree.unlisted
@@ -853,7 +891,7 @@ func syncListing(ctx context.Context, client *s3.Client, bucket, indexDoc string
 		if f.prefix == "" {
 			unlisted = tree.unlisted
 		}
-		body, err := renderListingPage(f, unlisted)
+		body, err := renderListingPage(f, unlisted, pageTheme)
 		if err != nil {
 			return false, err
 		}
@@ -877,7 +915,7 @@ func syncListing(ctx context.Context, client *s3.Client, bucket, indexDoc string
 			userPages.Add(1)
 			return false, nil
 		}
-		if err := putListingPage(ctx, client, bucket, key, body); err != nil {
+		if err := putListingPage(ctx, client, bucket, key, body, pageMeta); err != nil {
 			written.Add(-1)
 			return false, err
 		}
@@ -1001,7 +1039,7 @@ func (l *Listing) GetStatus(w http.ResponseWriter, r *http.Request) {
 		utils.ResponseSuccess(w, status)
 		return
 	}
-	state, err := headIndex(r.Context(), client, bucket, indexDoc)
+	state, meta, err := headIndexMeta(r.Context(), client, bucket, indexDoc)
 	if err != nil {
 		utils.ResponseError(w, err)
 		return
@@ -1010,13 +1048,32 @@ func (l *Listing) GetStatus(w http.ResponseWriter, r *http.Request) {
 	status.Available = true
 	status.Enabled = state == indexGenerated
 	status.Conflict = state == indexForeign
+	if status.Enabled {
+		status.Theme = listingThemeFromMeta(meta).Name
+	}
 	utils.ResponseSuccess(w, status)
 }
 
 // PUT /listing/{bucket} — generate the pages now: enables listing, or
-// refreshes it if it is already on.
+// refreshes it if it is already on. An optional body sets the pages' theme
+// (schema.DirectoryListingRequest); without one they keep theirs.
 func (l *Listing) Enable(w http.ResponseWriter, r *http.Request) {
 	bucket := r.PathValue("bucket")
+	var req schema.DirectoryListingRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, listingRequestMaxBytes)).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		utils.ResponseErrorStatus(w, errors.New("invalid request body"), http.StatusBadRequest)
+		return
+	}
+	var theme *schema.DirectoryListingTheme
+	if req.Theme != nil {
+		t, err := normalizeListingTheme(*req.Theme)
+		if err != nil {
+			utils.ResponseErrorStatus(w, err, http.StatusBadRequest)
+			return
+		}
+		theme = &t
+	}
+
 	info, err := fetchBucketByAlias(bucket)
 	if err != nil {
 		utils.ResponseError(w, err)
@@ -1049,7 +1106,7 @@ func (l *Listing) Enable(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), listingSyncTimeout)
 	defer cancel()
 
-	res, err := syncListing(ctx, client, bucket, indexDoc, listingCreate)
+	res, err := syncListing(ctx, client, bucket, indexDoc, listingCreate, theme)
 	if errors.Is(err, errListingConflict) {
 		utils.ResponseErrorStatus(w, err, http.StatusConflict)
 		return

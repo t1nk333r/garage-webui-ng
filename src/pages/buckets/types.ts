@@ -62,6 +62,20 @@ export type DirectoryListingStatus = {
   /** A refresh is queued or running. */
   pending: boolean;
   lastSync: DirectoryListingSync | null;
+  /** Web UI theme the pages use; "" is the built-in light/dark palette. */
+  theme: string;
+};
+
+/**
+ * Colors for the generated pages, taken from one of the web UI's themes:
+ * daisyUI's resolved variables b1, b2, b3 (base surfaces), bc (base content)
+ * and p (primary), each an OKLCH triple "L% C H". An empty name is the
+ * built-in palette and carries no colors.
+ */
+export type DirectoryListingTheme = {
+  name: string;
+  scheme?: "light" | "dark";
+  colors?: Record<string, string>;
 };
 
 export type DirectoryListingSync = {

@@ -32,13 +32,19 @@ func newListingFixture(t *testing.T, bucket string) *s3Fixture {
 // middleware/auth_test.go).
 func serveListing(t *testing.T, method, bucket string) *httptest.ResponseRecorder {
 	t.Helper()
+	return serveListingBody(t, method, bucket, "")
+}
+
+// serveListingBody is serveListing with a request body.
+func serveListingBody(t *testing.T, method, bucket, body string) *httptest.ResponseRecorder {
+	t.Helper()
 	mux := http.NewServeMux()
 	l := &Listing{}
 	mux.HandleFunc("GET /listing/{bucket}", l.GetStatus)
 	mux.HandleFunc("PUT /listing/{bucket}", l.Enable)
 	mux.HandleFunc("DELETE /listing/{bucket}", l.Disable)
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest(method, "/listing/"+bucket, nil))
+	mux.ServeHTTP(rec, httptest.NewRequest(method, "/listing/"+bucket, strings.NewReader(body)))
 	return rec
 }
 
@@ -163,7 +169,7 @@ func TestListingWritesAPagePerFolder(t *testing.T) {
 	for _, want := range []string{
 		`<title>Index of /hp/deep/</title>`,
 		`<a href="../../">/</a><a href="../">hp/</a><a href="./">deep/</a>`,
-		`<a href="../">../</a>`,
+		`<a href="../"><svg class="i d" aria-hidden="true"><use href="#i-d"/></svg>../</a>`,
 		`href="./y.png"`,
 	} {
 		if !strings.Contains(deep, want) {
@@ -207,7 +213,7 @@ func renderSampleListingPage(t *testing.T) string {
 		prefix:  "hp/",
 		folders: map[string]bool{"deep": true},
 		files:   []listingFile{{name: "x.png", size: 2048, modified: time.Unix(1700000000, 0)}},
-	}, 0)
+	}, 0, schema.DirectoryListingTheme{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,13 +243,13 @@ func TestListingPageRowsCarrySortKeys(t *testing.T) {
 	body := renderSampleListingPage(t)
 
 	entries := strings.Index(body, `<tbody id="entries">`)
-	parent := strings.Index(body, `<a href="../">../</a>`)
+	parent := strings.Index(body, `<a href="../">`)
 	if entries < 0 || parent < 0 || parent > entries {
 		t.Errorf("parent row at %d, entries body at %d: the parent link must come before the sortable rows", parent, entries)
 	}
 	for _, want := range []string{
-		`<tr><td class="n"><a href="./deep/">deep/</a>`,
-		`<tr data-size="2048" data-time="1700000000"><td class="n"><a href="./x.png">x.png</a>`,
+		`<tr><td class="n"><a href="./deep/"><svg class="i d" aria-hidden="true"><use href="#i-d"/></svg>deep/</a>`,
+		`<tr data-size="2048" data-time="1700000000"><td class="n"><a href="./x.png"><svg class="i f" aria-hidden="true"><use href="#i-f"/></svg>x.png</a>`,
 		`<th scope="col" data-sort="name" aria-sort="ascending">Name</th>`,
 		`data-sort="size"`,
 		`data-sort="time"`,
@@ -389,12 +395,12 @@ func TestListingBackgroundRunNeverEnables(t *testing.T) {
 
 	// Absent root: listing was never on, or was switched off while the
 	// refresh waited for the lock.
-	if _, err := syncListing(context.Background(), client, bucket, "index.html", listingUpdate); !errors.Is(err, errListingNotEnabled) {
+	if _, err := syncListing(context.Background(), client, bucket, "index.html", listingUpdate, nil); !errors.Is(err, errListingNotEnabled) {
 		t.Errorf("update with no root page: err = %v, want errListingNotEnabled", err)
 	}
 	// Foreign root.
 	f.PutTestObject("index.html", "<h1>mine</h1>", "text/html")
-	if _, err := syncListing(context.Background(), client, bucket, "index.html", listingUpdate); !errors.Is(err, errListingNotEnabled) {
+	if _, err := syncListing(context.Background(), client, bucket, "index.html", listingUpdate, nil); !errors.Is(err, errListingNotEnabled) {
 		t.Errorf("update with a foreign root: err = %v, want errListingNotEnabled", err)
 	}
 	if n := countS3(f, http.MethodPut, nil); n != 0 {

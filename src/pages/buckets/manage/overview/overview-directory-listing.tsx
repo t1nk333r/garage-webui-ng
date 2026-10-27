@@ -1,18 +1,22 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useStore } from "zustand";
 import { RefreshCw, Trash2 } from "lucide-react";
+import { themeLabel, themes, Themes } from "@/app/themes";
 import Button from "@/components/ui/button";
 import Toggle from "@/components/ui/toggle";
 import { useAuth } from "@/hooks/useAuth";
 import { dayjs, handleError } from "@/lib/utils";
-import { DirectoryListingStatus } from "../../types";
+import appStore from "@/stores/app-store";
+import { DirectoryListingStatus, DirectoryListingTheme } from "../../types";
 import { useBucketContext } from "../context";
 import {
   useDisableDirectoryListing,
   useEnableDirectoryListing,
 } from "../hooks";
 import DirectoryListingConfirm from "./directory-listing-confirm";
+import { readListingTheme } from "./listing-theme";
 import SaveStatus from "./save-status";
 
 type Props = {
@@ -24,16 +28,39 @@ type Props = {
 const plural = (n: number, word: string) =>
   `${n} ${word}${n === 1 ? "" : "s"}`;
 
+/** Page theme option for the built-in palette. */
+const AUTOMATIC = "";
+
+/**
+ * The theme as the API takes it, or null (with an error shown) when its
+ * colors cannot be read.
+ */
+const listingTheme = (name: string): DirectoryListingTheme | null => {
+  if (name === AUTOMATIC) {
+    return { name: AUTOMATIC };
+  }
+  const theme = readListingTheme(name as Themes);
+  if (!theme) {
+    toast.error(`Cannot read the colors of the ${themeLabel(name as Themes)} theme`);
+  }
+  return theme;
+};
+
 /**
  * Generated directory-listing pages for a website bucket. Garage's website
  * endpoint never lists a folder itself, so the backend writes one index page
  * per folder and refreshes them (backend/router/listing.go). Turning the
  * listing off deletes only those pages; it never touches website access.
+ *
+ * The pages take their colors from a web UI theme: the one this browser uses
+ * when the listing is published, and any other picked afterwards. The choice
+ * is stored with the pages, so a refresh keeps it.
  */
 const DirectoryListingSection = ({ status, websiteAccess }: Props) => {
   const { canWrite } = useAuth();
   const { bucketName } = useBucketContext();
   const queryClient = useQueryClient();
+  const appTheme = useStore(appStore, (s) => s.theme);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   // Every page is an object: the browser and the index-document probe both
@@ -115,8 +142,25 @@ const DirectoryListingSection = ({ status, websiteAccess }: Props) => {
 
   const onConfirm = () => {
     setConfirmOpen(false);
-    enable.mutate();
+    const theme = listingTheme(appTheme);
+    if (theme) {
+      enable.mutate(theme);
+    }
   };
+
+  const onThemeChange = (name: string) => {
+    const theme = listingTheme(name);
+    if (theme) {
+      enable.mutate(theme);
+    }
+  };
+
+  // A theme the pages carry that this version of the UI no longer offers
+  // still shows as selected.
+  const themeOptions: string[] =
+    status.theme && !themes.includes(status.theme as Themes)
+      ? [...themes, status.theme]
+      : [...themes];
 
   const sync = status.lastSync;
 
@@ -169,6 +213,27 @@ const DirectoryListingSection = ({ status, websiteAccess }: Props) => {
 
       {!status.available && status.reason ? (
         <p className="text-xs text-warning mt-2">{status.reason}</p>
+      ) : null}
+
+      {status.enabled ? (
+        <label className="mt-3 flex flex-row flex-wrap items-center gap-2 text-sm">
+          <span>Page theme</span>
+          <select
+            className="select select-bordered select-sm"
+            value={status.theme}
+            disabled={!canWrite || busy}
+            onChange={(e) => onThemeChange(e.target.value)}
+          >
+            <option value={AUTOMATIC}>Automatic (visitor's light or dark)</option>
+            {themeOptions.map((name) => (
+              <option key={name} value={name}>
+                {themes.includes(name as Themes)
+                  ? themeLabel(name as Themes)
+                  : name}
+              </option>
+            ))}
+          </select>
+        </label>
       ) : null}
 
       {status.enabled ? (
@@ -227,6 +292,7 @@ const DirectoryListingSection = ({ status, websiteAccess }: Props) => {
       <DirectoryListingConfirm
         bucketName={bucketName}
         indexDocument={indexDocument}
+        themeName={themeLabel(appTheme)}
         isOpen={confirmOpen}
         onCancel={() => setConfirmOpen(false)}
         onConfirm={onConfirm}
