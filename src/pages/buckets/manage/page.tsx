@@ -14,6 +14,7 @@ import {
 import OverviewTab from "./overview/overview-tab";
 import PermissionsTab from "./permissions/permissions-tab";
 import MenuButton from "./components/menu-button";
+import BucketWebsiteLink from "./components/website-link";
 import BrowseTab from "./browse/browse-tab";
 import { BucketContext } from "./context";
 import { Alert, Loading } from "react-daisyui";
@@ -105,7 +106,12 @@ const ManageBucketPage = () => {
           <BucketContext.Provider
             value={{ bucket: data, refetch, bucketName: name || "" }}
           >
-            <TabView tabs={tabs} variant="bordered" contentClassName="mt-5" />
+            <TabView
+              tabs={tabs}
+              variant="bordered"
+              contentClassName="mt-5"
+              extra={<BucketWebsiteLink bucket={data} />}
+            />
           </BucketContext.Provider>
         </div>
       )}
