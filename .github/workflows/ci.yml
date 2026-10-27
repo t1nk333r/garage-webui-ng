@@ -2,10 +2,13 @@
 # unmetered for a public repository).
 #
 #   - every push to main, every pull request: frontend and backend checks,
-#     govulncheck (blocking), pnpm audit (advisory);
+#     govulncheck (blocking), pnpm audit (advisory). Only the tests the change
+#     can reach run, as decided by .github/scripts/ci-scope.sh; a side the
+#     change does not touch is skipped;
 #   - main: the multi-arch image, tagged main, latest and sha-<short>;
-#   - a v* tag: the image tagged X.Y.Z, X.Y and X, plus a GitHub release with
-#     the signed binaries.
+#   - a v* tag: every test, then the image tagged X.Y.Z, X.Y and X, plus a
+#     GitHub release with the signed binaries;
+#   - nightly, and on a manual run: every test.
 #
 # Release assets and their names are a contract with `relsign verify` and the
 # in-app updater (contrib/garage-update): do not rename them.
@@ -17,12 +20,18 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+  # Catches what a narrowed run cannot: a newly published advisory, or a test
+  # that depends on a file no scope rule knows it reads.
+  schedule:
+    - cron: "23 3 * * *"
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # The event is part of the group so the nightly run never cancels a push
+  # that is publishing an image, or the other way round.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   # A newer push to a branch supersedes a running build; a release never is.
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
@@ -35,8 +44,27 @@ env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/garage-webui-ng
 
 jobs:
+  changes:
+    name: "Scope: what the change reaches"
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.scope.outputs.frontend }}
+      frontend_files: ${{ steps.scope.outputs.frontend_files }}
+      backend: ${{ steps.scope.outputs.backend }}
+      backend_files: ${{ steps.scope.outputs.backend_files }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: scope
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: .github/scripts/ci-scope.sh
+
   frontend:
     name: "Frontend: lint · typecheck · test · build"
+    needs: changes
+    if: needs.changes.outputs.frontend != 'skip'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -52,11 +80,29 @@ jobs:
       - run: pnpm run lint
         continue-on-error: true
       - run: pnpm run typecheck
-      - run: pnpm run test
+      - name: Test (${{ needs.changes.outputs.frontend }})
+        env:
+          SCOPE: ${{ needs.changes.outputs.frontend }}
+          FILES: ${{ needs.changes.outputs.frontend_files }}
+        run: |
+          if [ "$SCOPE" = full ]; then
+            pnpm run test
+            exit
+          fi
+          mapfile -t files < <(jq -r '.[]' <<<"$FILES")
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No frontend test reaches this change."
+            exit
+          fi
+          # The changed test files, and every test file that imports a changed
+          # source at any depth.
+          pnpm exec vitest related --run --passWithNoTests "${files[@]}"
       - run: pnpm run build
 
   backend:
     name: "Backend: build · vet · fmt · test"
+    needs: changes
+    if: needs.changes.outputs.backend != 'skip'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -77,7 +123,24 @@ jobs:
       - run: go build ./...
       - run: go vet ./...
       - run: test -z "$(gofmt -l .)"
-      - run: go test -race ./...
+      - name: Test (${{ needs.changes.outputs.backend }})
+        env:
+          SCOPE: ${{ needs.changes.outputs.backend }}
+          FILES: ${{ needs.changes.outputs.backend_files }}
+        run: |
+          if [ "$SCOPE" = full ]; then
+            go test -race ./...
+            exit
+          fi
+          # The changed packages and every package that imports one.
+          pkgs=$(jq -r '.[]' <<<"$FILES" | ../.github/scripts/go-affected.sh)
+          if [ -z "$pkgs" ]; then
+            echo "No Go test reaches this change."
+            exit
+          fi
+          echo "$pkgs"
+          mapfile -t list <<<"$pkgs"
+          go test -race "${list[@]}"
 
   govulncheck:
     name: "Security: govulncheck"
@@ -109,7 +172,8 @@ jobs:
   image:
     name: Build & push multi-arch image
     needs: [frontend, backend, govulncheck]
-    if: github.event_name == 'push'
+    # A side the change does not reach is skipped, not failed.
+    if: ${{ !cancelled() && !failure() && github.event_name == 'push' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -157,7 +221,7 @@ jobs:
   release:
     name: "Release: signed binaries"
     needs: [frontend, backend, govulncheck]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: ${{ !cancelled() && !failure() && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
