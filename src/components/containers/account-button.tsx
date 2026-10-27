@@ -8,12 +8,8 @@ import { Link, useLocation } from "react-router-dom";
  * the way into Settings.
  *
  * It is a plain link rather than a dropdown because it has exactly one
- * destination — the theme picker and Logout deliberately stayed in the sidebar,
- * so a menu would cost a click to reach its only item.
- *
- * It must render unconditionally. `Settings` was removed from the sidebar nav
- * when this landed, which makes this chip the only route to that page; hiding
- * it behind any condition strands `/settings` at a URL nobody can click to.
+ * destination — Logout lives in the sidebar and the theme picker in the top
+ * bar, so a menu would cost a click to reach its only item.
  */
 const AccountButton = () => {
   const { username } = useAuth();

@@ -93,13 +93,12 @@ out here, so an agent working nearby doesn't fly blind:
   `X-Frame-Options: SAMEORIGIN` always, plus a `Content-Security-Policy` that
   sandboxes the response body (`objectViewCSP`) — an inline-safe MIME type
   still gets a scriptless, framed-only-by-self origin.
-- **Interface styles and themes.** `appStore.uiStyle` (`src/stores/app-store.ts`,
-  persisted per browser) picks `modern` (default — `src/components/modern/`,
-  adapted from Noooste/garage-ui) or `classic` (the original layout, kept
-  as-is). `MainLayout`, the home page and the buckets page branch on it; every
-  other page renders in both shells, and the modern header is fed from
-  `PageContext` (`subtitle`/`icon` are modern-only). Themes are daisyUI's plus
-  the local default `dark-pastel`, all built in `tailwind.config.js` with
+- **Layout and themes.** There is one layout, `src/components/modern/`
+  (adapted from Noooste/garage-ui); the original "classic" layout has been
+  removed. Its page header is fed from `PageContext`. The theme lives in
+  `appStore` (`src/stores/app-store.ts`, persisted per browser). Themes are
+  daisyUI's plus the local default `dark-pastel`, all built in
+  `tailwind.config.js` with
   pastel's shape tokens; a new dark theme must also join `darkThemes`
   (`src/app/themes.ts`) or charts use the light palette. The persisted store is
   versioned — change its shape through `migrateAppState`, never in place.

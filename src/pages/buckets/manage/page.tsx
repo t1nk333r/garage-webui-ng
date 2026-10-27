@@ -14,11 +14,10 @@ import {
 import OverviewTab from "./overview/overview-tab";
 import PermissionsTab from "./permissions/permissions-tab";
 import MenuButton from "./components/menu-button";
+import BucketWebsiteLink from "./components/website-link";
 import BrowseTab from "./browse/browse-tab";
 import { BucketContext } from "./context";
 import { Alert, Loading } from "react-daisyui";
-import { useStore } from "zustand";
-import appStore from "@/stores/app-store";
 import { copyToClipboard, formatCount, readableBytes } from "@/lib/utils";
 import { Bucket } from "../types";
 
@@ -46,8 +45,6 @@ const tabs: Tab[] = [
 const ManageBucketPage = () => {
   const { id } = useParams();
   const { data, error, isLoading, refetch } = useBucket(id);
-  const isModern = useStore(appStore, (s) => s.uiStyle) === "modern";
-
   const name = data?.globalAliases?.[0];
   const hasAlias = !!name;
 
@@ -56,11 +53,11 @@ const ManageBucketPage = () => {
       <Page
         title={name || "Manage Bucket"}
         prev="/buckets"
-        icon={isModern ? ArchiveIcon : undefined}
-        subtitle={isModern && data ? <BucketSummary bucket={data} /> : undefined}
+        icon={ArchiveIcon}
+        subtitle={data ? <BucketSummary bucket={data} /> : undefined}
         actions={
           data ? (
-            isModern && name ? (
+            name ? (
               <>
                 <button
                   type="button"
@@ -109,11 +106,12 @@ const ManageBucketPage = () => {
           <BucketContext.Provider
             value={{ bucket: data, refetch, bucketName: name || "" }}
           >
-            {isModern ? (
-              <TabView tabs={tabs} variant="bordered" contentClassName="mt-5" />
-            ) : (
-              <TabView tabs={tabs} className="bg-base-100 h-14 px-1.5" />
-            )}
+            <TabView
+              tabs={tabs}
+              variant="bordered"
+              contentClassName="mt-5"
+              extra={<BucketWebsiteLink bucket={data} />}
+            />
           </BucketContext.Provider>
         </div>
       )}
@@ -121,7 +119,7 @@ const ManageBucketPage = () => {
   );
 };
 
-/** The modern page header's line under the bucket name. */
+/** The page header's line under the bucket name. */
 const BucketSummary = ({ bucket }: { bucket: Bucket }) => {
   const name = bucket.globalAliases?.[0];
 

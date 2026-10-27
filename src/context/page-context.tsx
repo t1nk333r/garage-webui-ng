@@ -13,8 +13,7 @@ type PageContextValues = {
   title: string | null;
   prev: string | null;
   actions: React.ReactNode | null;
-  // Only the modern layout's page header renders these two; the classic
-  // header ignores them.
+  // Shown under and beside the title in the page header.
   subtitle: React.ReactNode | null;
   icon: LucideIcon | null;
 };

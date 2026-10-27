@@ -37,8 +37,7 @@ describe("AccountButton", () => {
 
   it("still renders a working Settings link before the username loads", () => {
     // `useAuth().username` is `string | undefined` — undefined on first paint,
-    // while /auth/status is in flight. Settings must stay reachable: this chip
-    // is the only route to it.
+    // while /auth/status is in flight. The link must not wait for it.
     mockAuth.username = undefined;
     renderAt("/");
 
