@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DirectoryListingStatus } from "../../types";
+import { DirectoryListingStatus, DirectoryListingTheme } from "../../types";
 import DirectoryListingSection from "./overview-directory-listing";
 
 const mutation = () => ({
@@ -18,7 +18,20 @@ const mocks = vi.hoisted(() => ({
   disable: null as unknown as ReturnType<typeof mutation>,
   updateBucket: { mutate: (() => {}) as (...args: unknown[]) => void },
   canWrite: true,
+  readTheme: null as unknown as (name: string) => DirectoryListingTheme | null,
 }));
+
+// jsdom loads no stylesheet, so a theme's colors are stubbed: the reader
+// itself is covered in listing-theme.test.ts.
+vi.mock("./listing-theme", () => ({
+  readListingTheme: (name: string) => mocks.readTheme(name),
+}));
+
+const themeOf = (name: string): DirectoryListingTheme => ({
+  name,
+  scheme: "dark",
+  colors: { b1: "1% 0 0", b2: "2% 0 0", b3: "3% 0 0", bc: "90% 0 0", p: "70% 0.1 50" },
+});
 
 vi.mock("../context", () => ({
   useBucketContext: () => ({ bucketName: "my-bucket", bucket: { id: "b1" } }),
@@ -46,6 +59,7 @@ const status = (
   available: true,
   pending: false,
   lastSync: null,
+  theme: "",
   ...overrides,
 });
 
@@ -64,6 +78,7 @@ describe("DirectoryListingSection", () => {
     mocks.disable = mutation();
     mocks.updateBucket.mutate = vi.fn();
     mocks.canWrite = true;
+    mocks.readTheme = themeOf;
   });
 
   it("enabling asks for confirmation before generating anything", async () => {
@@ -77,6 +92,43 @@ describe("DirectoryListingSection", () => {
 
     await user.click(screen.getByRole("button", { name: /publish listing/i }));
     expect(mocks.enable.mutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("publishes in the theme this browser uses", async () => {
+    const user = userEvent.setup();
+    renderSection(status());
+
+    await user.click(screen.getByRole("checkbox"));
+    expect(screen.getByText(/your current theme, dark pastel/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /publish listing/i }));
+
+    expect(mocks.enable.mutate).toHaveBeenCalledWith(themeOf("dark-pastel"));
+  });
+
+  it("picking a page theme regenerates the pages in it", async () => {
+    const user = userEvent.setup();
+    renderSection(status({ enabled: true, theme: "nord" }));
+
+    const select = screen.getByRole("combobox", { name: /page theme/i });
+    expect(select).toHaveValue("nord");
+
+    await user.selectOptions(select, "dracula");
+    expect(mocks.enable.mutate).toHaveBeenLastCalledWith(themeOf("dracula"));
+
+    await user.selectOptions(select, "");
+    expect(mocks.enable.mutate).toHaveBeenLastCalledWith({ name: "" });
+  });
+
+  it("sends nothing when a theme's colors cannot be read", async () => {
+    const user = userEvent.setup();
+    mocks.readTheme = () => null;
+    renderSection(status({ enabled: true }));
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /page theme/i }),
+      "nord"
+    );
+    expect(mocks.enable.mutate).not.toHaveBeenCalled();
   });
 
   it("cancelling the confirmation generates nothing", async () => {
@@ -137,8 +189,10 @@ describe("DirectoryListingSection", () => {
     expect(screen.getByText(/3 folders · 12 files/)).toBeInTheDocument();
     expect(screen.getByText(/1 folder has its own/i)).toBeInTheDocument();
 
+    // A refresh sends no theme, so the pages keep theirs.
     await user.click(screen.getByRole("button", { name: /refresh now/i }));
     expect(mocks.enable.mutate).toHaveBeenCalledTimes(1);
+    expect(mocks.enable.mutate).toHaveBeenCalledWith();
   });
 
   it("offers to remove pages left behind after website access was turned off", async () => {
@@ -162,6 +216,7 @@ describe("DirectoryListingSection", () => {
     renderSection(status({ enabled: true, conflict: false }));
 
     expect(screen.getByRole("checkbox")).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: /page theme/i })).toBeDisabled();
     expect(screen.queryByRole("button", { name: /refresh now/i })).toBeNull();
   });
 });

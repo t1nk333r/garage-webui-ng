@@ -4,6 +4,8 @@ import Button from "@/components/ui/button";
 type Props = {
   bucketName: string;
   indexDocument: string;
+  /** Display name of the web UI theme the pages will use. */
+  themeName: string;
   isOpen: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -18,6 +20,7 @@ type Props = {
 const DirectoryListingConfirm = ({
   bucketName,
   indexDocument,
+  themeName,
   isOpen,
   onCancel,
   onConfirm,
@@ -36,6 +39,10 @@ const DirectoryListingConfirm = ({
           An <code>{indexDocument}</code> is written into every folder and kept
           up to date. Turning the listing off removes those pages again;
           website access stays on.
+        </p>
+        <p className="mt-2">
+          The pages use your current theme, {themeName}. You can pick another
+          afterwards.
         </p>
       </Modal.Body>
       <Modal.Actions>

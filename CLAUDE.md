@@ -115,7 +115,15 @@ out here, so an agent working nearby doesn't fly blind:
   delete, and an unmarked object is never written over or removed —
   `TestListing*RechecksOwnership` fail if either check is dropped.
   Background runs never create the root page, which is what keeps a
-  concurrent disable from being undone.
+  concurrent disable from being undone. The page's one script (column
+  sorting, `listingScript`) runs only because the meta CSP names its SHA-256;
+  html/template strips JS comments, so the script must contain none —
+  `TestListingPageScriptMatchesItsHash` fails if the two drift. Page colors
+  come from a web UI theme that the browser reads off daisyUI's compiled
+  variables (`listing-theme.ts`) and sends with `PUT /listing`; the backend
+  never knows the themes. `listing_theme.go` admits only OKLCH triples, stores
+  the theme as page metadata, and re-validates it in `listingThemeCSS`
+  because that output bypasses template escaping.
 - **Host updater.** `contrib/garage-update/` is plain bash with no build step:
   `garage-update` updates Garage and WebUI-NG on a systemd binary install
   (verify → back up → swap → health check → automatic rollback) and

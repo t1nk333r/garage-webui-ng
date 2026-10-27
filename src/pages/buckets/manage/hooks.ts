@@ -9,6 +9,7 @@ import {
   Bucket,
   DirectoryListingStatus,
   DirectoryListingSync,
+  DirectoryListingTheme,
   Permissions,
 } from "../types";
 import { handleError } from "@/lib/utils";
@@ -121,13 +122,24 @@ export const useDirectoryListing = (bucketName: string, enabled = true) => {
   });
 };
 
-/** Generates the listing pages now: enables listing, or refreshes it. */
+/**
+ * Generates the listing pages now: enables listing, or refreshes it. With a
+ * theme the pages take its colors; without one they keep theirs.
+ */
 export const useEnableDirectoryListing = (
   bucketName: string,
-  options?: UseMutationOptions<DirectoryListingSync, Error, void>
+  options?: UseMutationOptions<
+    DirectoryListingSync,
+    Error,
+    DirectoryListingTheme | void
+  >
 ) => {
   return useMutation({
-    mutationFn: () => api.put<DirectoryListingSync>(`/listing/${bucketName}`),
+    mutationFn: (theme) =>
+      api.put<DirectoryListingSync>(
+        `/listing/${bucketName}`,
+        theme ? { body: { theme } } : undefined
+      ),
     ...options,
   });
 };

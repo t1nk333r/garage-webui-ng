@@ -301,7 +301,10 @@ anonymous visitors cannot list a bucket. A website bucket therefore answers
 Turn on **Directory listing** under the bucket's website settings to have the
 web UI write one browsable page per folder — an `index.html` that lists the
 folder's subfolders and files with their size and date, in the style of an
-nginx autoindex:
+nginx autoindex. Click a column header to sort by name, size or date; folders
+always stay on top. The pages take their colors from a web UI theme — the one
+you are using when you publish the listing, or any other picked under **Page
+theme** — or follow each visitor's own light or dark preference:
 
 - **It publishes every file name.** With website access alone, a visitor can
   fetch only a file whose exact name they know; with a listing they can see all
@@ -321,9 +324,11 @@ nginx autoindex:
 - **It needs a read+write key** assigned to the bucket, like the object
   browser, and the index document must be a plain file name. It is refused
   for buckets of more than 100,000 objects.
-- The pages are self-contained HTML with no scripts and send
-  `Cache-Control: no-cache`, so browsers revalidate rather than show a stale
-  listing. If a reverse proxy in front of the website endpoint overrides cache
+- The pages are self-contained HTML. Their only script is the built-in one
+  that sorts the table, and their Content-Security-Policy admits that script
+  alone, by hash; with scripts blocked the table still works, unsorted. They
+  send `Cache-Control: no-cache`, so browsers revalidate rather than show a
+  stale listing. If a reverse proxy in front of the website endpoint overrides cache
   headers, exempt HTML from that rule.
 
 ### Public access is opt-in
