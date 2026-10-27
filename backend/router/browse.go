@@ -377,6 +377,7 @@ func (b *Browse) PutObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	notifyListing(bucket)
 	utils.ResponseSuccess(w, result)
 }
 
@@ -440,6 +441,7 @@ func (b *Browse) DeleteObject(w http.ResponseWriter, r *http.Request) {
 			continuationToken = objects.NextContinuationToken
 		}
 
+		notifyListing(bucket)
 		utils.ResponseSuccess(w, map[string]any{"deleted": deleted, "errors": failed})
 		return
 	}
@@ -455,6 +457,7 @@ func (b *Browse) DeleteObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	notifyListing(bucket)
 	utils.ResponseSuccess(w, res)
 }
 
@@ -511,6 +514,7 @@ func (b *Browse) BulkDeleteObjects(w http.ResponseWriter, r *http.Request) {
 		deleted += len(res.Deleted)
 		failed = append(failed, deleteErrorsToList(res.Errors)...)
 	}
+	notifyListing(bucket)
 	utils.ResponseSuccess(w, map[string]any{"deleted": deleted, "errors": failed})
 }
 

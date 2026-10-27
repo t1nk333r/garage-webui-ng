@@ -131,6 +131,10 @@ func main() {
 		mux.Handle("/", http.RedirectHandler(basePath, http.StatusMovedPermanently))
 	}
 
+	// Keeps generated directory-listing pages current (router/listing_refresher.go).
+	listingCtx, cancelListing := context.WithCancel(context.Background())
+	stopListing := router.StartListingRefresher(listingCtx)
+
 	srv := &http.Server{
 		Addr:    addr,
 		Handler: middleware.SecurityHeaders(sessionMgr.LoadAndSave(mux)),
@@ -154,9 +158,23 @@ func main() {
 	log.Println("Shutting down server...")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	// Background listing refreshes are abandoned rather than finished; the
+	// next start's sweep picks up anything they would have written.
+	cancelListing()
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Printf("Graceful shutdown failed: %v", err)
 		os.Exit(1)
+	}
+	listingStopped := make(chan struct{})
+	go func() {
+		stopListing()
+		close(listingStopped)
+	}()
+	select {
+	case <-listingStopped:
+	case <-ctx.Done():
+		log.Println("Directory listing refresher did not stop in time.")
 	}
 	log.Println("Server stopped cleanly.")
 }

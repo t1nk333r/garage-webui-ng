@@ -3,6 +3,8 @@ package router
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -863,13 +865,32 @@ type s3Fixture struct {
 	// that fails partway through the body (plan 056's regression guards).
 	// key is the object key parsed from the request path.
 	onGetObject func(w http.ResponseWriter, r *http.Request, key string) bool
+
+	// onHeadObject lets a test answer one HEAD differently from the stored
+	// object — e.g. report a page as generated on one look and as someone
+	// else's on the next, which is how the listing tests prove that a write
+	// or delete re-checks ownership immediately before acting.
+	onHeadObject func(w http.ResponseWriter, r *http.Request, key string) bool
+
+	// What the fake admin API reports for this bucket. GetBucketInfo answers
+	// with the bucket's ID, its global alias (the fixture's bucket name) and
+	// these website settings; ListBuckets lists just this bucket.
+	websiteAccess bool
+	indexDocument string
+
+	adminMu    sync.Mutex
+	adminPaths []string
 }
 
 type fixtureObject struct {
 	body         []byte
 	contentType  string
+	cacheControl string
 	lastModified time.Time
 	etag         string
+	// metadata is S3 user metadata, keyed lowercase without the
+	// x-amz-meta- prefix, as Garage and the SDK report it.
+	metadata map[string]string
 }
 
 type fixtureUpload struct {
@@ -906,13 +927,28 @@ func newS3Fixture(t *testing.T, bucket string) *s3Fixture {
 
 	const accessKeyID = "AKIATESTFIXTURE"
 	f.adminServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.adminMu.Lock()
+		f.adminPaths = append(f.adminPaths, r.URL.Path)
+		f.adminMu.Unlock()
+
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/v2/GetBucketInfo"):
-			_ = json.NewEncoder(w).Encode(schema.Bucket{
+			f.mu.Lock()
+			info := schema.Bucket{
+				ID:            f.BucketID(),
+				GlobalAliases: []string{bucket},
+				WebsiteAccess: f.websiteAccess,
+				WebsiteConfig: schema.WebsiteConfig{IndexDocument: f.indexDocument},
 				Keys: []schema.KeyElement{
 					{AccessKeyID: accessKeyID, Permissions: schema.Permissions{Read: true, Write: true}},
 				},
+			}
+			f.mu.Unlock()
+			_ = json.NewEncoder(w).Encode(info)
+		case strings.HasPrefix(r.URL.Path, "/v2/ListBuckets"):
+			_ = json.NewEncoder(w).Encode([]schema.GetBucketsRes{
+				{ID: f.BucketID(), GlobalAliases: []string{bucket}},
 			})
 		case strings.HasPrefix(r.URL.Path, "/v2/GetKeyInfo"):
 			_ = json.NewEncoder(w).Encode(schema.KeyElement{
@@ -948,14 +984,69 @@ func (f *s3Fixture) EnableSharing() {
 // PutTestObject seeds an object directly into the fake store, bypassing
 // PutObject, so read-path tests don't depend on the write path also working.
 func (f *s3Fixture) PutTestObject(key, body, contentType string) {
+	f.PutTestObjectMeta(key, body, contentType, nil)
+}
+
+// PutTestObjectMeta is PutTestObject with S3 user metadata (keys without the
+// x-amz-meta- prefix).
+func (f *s3Fixture) PutTestObjectMeta(key, body, contentType string, metadata map[string]string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	meta := map[string]string{}
+	for k, v := range metadata {
+		meta[strings.ToLower(k)] = v
+	}
 	f.objects[key] = &fixtureObject{
 		body:         []byte(body),
 		contentType:  contentType,
 		lastModified: time.Now(),
 		etag:         `"etag-` + key + `"`,
+		metadata:     meta,
 	}
+}
+
+// BucketID is the ID the fake admin API reports for the fixture's bucket.
+func (f *s3Fixture) BucketID() string {
+	return "id-" + f.bucket
+}
+
+// SetWebsite sets the website settings GetBucketInfo reports.
+func (f *s3Fixture) SetWebsite(access bool, indexDocument string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.websiteAccess = access
+	f.indexDocument = indexDocument
+}
+
+// AdminPaths returns the path of every request the fake admin API has
+// received, in arrival order.
+func (f *s3Fixture) AdminPaths() []string {
+	f.adminMu.Lock()
+	defer f.adminMu.Unlock()
+	return append([]string(nil), f.adminPaths...)
+}
+
+// Object returns a copy of the stored object for key, and whether it exists.
+func (f *s3Fixture) Object(key string) (fixtureObject, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	obj, ok := f.objects[key]
+	if !ok {
+		return fixtureObject{}, false
+	}
+	return *obj, true
+}
+
+// Keys returns every stored key, sorted.
+func (f *s3Fixture) Keys() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	keys := make([]string, 0, len(f.objects))
+	for k := range f.objects {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // SeedUpload registers an in-progress multipart upload for
@@ -1066,6 +1157,9 @@ func (f *s3Fixture) handle(w http.ResponseWriter, r *http.Request) {
 		f.defaultPutObject(w, r, key)
 
 	case r.Method == http.MethodHead && key != "":
+		if f.onHeadObject != nil && f.onHeadObject(w, r, key) {
+			return
+		}
 		f.defaultHeadObject(w, key)
 
 	case r.Method == http.MethodGet && key != "":
@@ -1220,6 +1314,7 @@ func (f *s3Fixture) defaultGetObject(w http.ResponseWriter, key string) {
 	if obj.etag != "" {
 		w.Header().Set("ETag", obj.etag)
 	}
+	writeObjectExtraHeaders(w, obj)
 	w.Header().Set("Content-Length", strconv.Itoa(len(obj.body)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(obj.body)
@@ -1248,24 +1343,48 @@ func (f *s3Fixture) defaultHeadObject(w http.ResponseWriter, key string) {
 	if obj.etag != "" {
 		w.Header().Set("ETag", obj.etag)
 	}
+	writeObjectExtraHeaders(w, obj)
 	w.Header().Set("Content-Length", strconv.Itoa(len(obj.body)))
 	w.WriteHeader(http.StatusOK)
 }
 
-// defaultPutObject answers PUT /{bucket}/{key}, storing whatever Content-Type
-// the SDK actually sent — what lets a test assert on
-// resolveUploadContentType's effect end to end, not just as a unit.
+// writeObjectExtraHeaders sends a stored object's Cache-Control and user
+// metadata the way Garage does on GET and HEAD.
+func writeObjectExtraHeaders(w http.ResponseWriter, obj *fixtureObject) {
+	if obj.cacheControl != "" {
+		w.Header().Set("Cache-Control", obj.cacheControl)
+	}
+	for k, v := range obj.metadata {
+		w.Header().Set("X-Amz-Meta-"+k, v)
+	}
+}
+
+// defaultPutObject answers PUT /{bucket}/{key}, storing whatever Content-Type,
+// Cache-Control and user metadata the SDK actually sent — what lets a test
+// assert on resolveUploadContentType's effect end to end, not just as a
+// unit. The ETag is the body's MD5, as Garage computes it for a single-part
+// upload.
 func (f *s3Fixture) defaultPutObject(w http.ResponseWriter, r *http.Request, key string) {
 	body, _ := io.ReadAll(r.Body)
+	meta := map[string]string{}
+	for name, values := range r.Header {
+		if len(name) > len("X-Amz-Meta-") && strings.EqualFold(name[:len("X-Amz-Meta-")], "X-Amz-Meta-") {
+			meta[strings.ToLower(name[len("X-Amz-Meta-"):])] = values[0]
+		}
+	}
+	sum := md5.Sum(body)
+	etag := `"` + hex.EncodeToString(sum[:]) + `"`
 	f.mu.Lock()
 	f.objects[key] = &fixtureObject{
 		body:         body,
 		contentType:  r.Header.Get("Content-Type"),
+		cacheControl: r.Header.Get("Cache-Control"),
 		lastModified: time.Now(),
-		etag:         `"put-etag"`,
+		etag:         etag,
+		metadata:     meta,
 	}
 	f.mu.Unlock()
-	w.Header().Set("ETag", `"put-etag"`)
+	w.Header().Set("ETag", etag)
 	w.WriteHeader(http.StatusOK)
 }
 

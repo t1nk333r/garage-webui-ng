@@ -70,6 +70,16 @@ func HandleApiRouter() *http.ServeMux {
 	// Browse.SearchObjects.
 	router.HandleFunc("GET /search/{bucket}", browse.SearchObjects)
 
+	// Generated directory-listing pages for website buckets (listing.go).
+	// Their own prefix for the same reason as /search: a segment under
+	// /browse/{bucket}/{key...} would shadow an object of that name. PUT and
+	// DELETE write to the bucket, so isViewerAllowed denies them to a viewer;
+	// GET only reads.
+	listing := &Listing{}
+	router.HandleFunc("GET /listing/{bucket}", listing.GetStatus)
+	router.HandleFunc("PUT /listing/{bucket}", listing.Enable)
+	router.HandleFunc("DELETE /listing/{bucket}", listing.Disable)
+
 	metrics := &Metrics{}
 	router.HandleFunc("GET /metrics", metrics.Get)
 
