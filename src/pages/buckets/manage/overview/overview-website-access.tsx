@@ -3,7 +3,11 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { websiteConfigSchema, WebsiteConfigSchema } from "../schema";
 import { useEffect, useState } from "react";
 import { useDebounce } from "@/hooks/useDebounce";
-import { useObjectExists, useUpdateBucket } from "../hooks";
+import {
+  useDirectoryListing,
+  useObjectExists,
+  useUpdateBucket,
+} from "../hooks";
 import { useConfig } from "@/hooks/useConfig";
 import { CircleXIcon, Copy, Info, LinkIcon } from "lucide-react";
 import { Alert } from "react-daisyui";
@@ -19,6 +23,7 @@ import {
 } from "@/lib/website";
 import SaveStatus from "./save-status";
 import PublicAccessConfirm from "./public-access-confirm";
+import DirectoryListingSection from "./overview-directory-listing";
 
 const WebsiteAccessSection = () => {
   const { canWrite } = useAuth();
@@ -47,6 +52,11 @@ const WebsiteAccessSection = () => {
     bucketName,
     data?.websiteAccess ? errorDoc : null
   );
+
+  // Generated listing pages are written under the index document's name, so
+  // renaming it while they exist would strand every one of them.
+  const listing = useDirectoryListing(bucketName);
+  const listingOn = !!listing.data?.enabled;
 
   // Debounced auto-save for the index/error document fields only.
   // `websiteAccess` is driven explicitly (see the toggle's onChange below) —
@@ -171,9 +181,13 @@ const WebsiteAccessSection = () => {
                 form={form}
                 name="websiteConfig.indexDocument"
                 title="Index Document"
-                disabled={!canWrite}
+                disabled={!canWrite || listingOn}
               />
-              {indexPresence.presence === "missing" ? (
+              {listingOn ? (
+                <p className="text-xs text-base-content/60 mt-1">
+                  Turn off the directory listing to change this.
+                </p>
+              ) : indexPresence.presence === "missing" ? (
                 <p className="text-xs text-warning mt-1">
                   Not found in this bucket — visitors will get an error until
                   you upload it.
@@ -195,6 +209,8 @@ const WebsiteAccessSection = () => {
               ) : null}
             </div>
           </div>
+
+          <DirectoryListingSection status={listing.data} websiteAccess />
 
           {websiteUrl ? (
             <div className="mt-4 alert flex flex-row flex-wrap items-center text-sm gap-x-2 gap-y-1">
@@ -229,6 +245,10 @@ const WebsiteAccessSection = () => {
             </Alert>
           ) : null}
         </>
+      )}
+
+      {!isEnabled && (
+        <DirectoryListingSection status={listing.data} websiteAccess={false} />
       )}
     </div>
   );

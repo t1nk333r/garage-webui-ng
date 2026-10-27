@@ -5,7 +5,12 @@ import {
   UseMutationOptions,
   useQuery,
 } from "@tanstack/react-query";
-import { Bucket, Permissions } from "../types";
+import {
+  Bucket,
+  DirectoryListingStatus,
+  DirectoryListingSync,
+  Permissions,
+} from "../types";
 import { handleError } from "@/lib/utils";
 
 export const useMultipartUploads = (bucketName: string) => {
@@ -101,6 +106,41 @@ export const useObjectExists = (bucketName: string, key?: string | null) => {
       : classifyObjectProbe(query.isSuccess, query.error),
     isLoading: query.isLoading,
   };
+};
+
+/**
+ * Whether `bucketName` serves generated directory-listing pages. Polls while
+ * a refresh is queued or running, so the status line catches up on its own.
+ */
+export const useDirectoryListing = (bucketName: string, enabled = true) => {
+  return useQuery({
+    queryKey: ["listing", bucketName],
+    queryFn: () => api.get<DirectoryListingStatus>(`/listing/${bucketName}`),
+    enabled: !!bucketName && enabled,
+    refetchInterval: (query) => (query.state.data?.pending ? 2000 : false),
+  });
+};
+
+/** Generates the listing pages now: enables listing, or refreshes it. */
+export const useEnableDirectoryListing = (
+  bucketName: string,
+  options?: UseMutationOptions<DirectoryListingSync, Error, void>
+) => {
+  return useMutation({
+    mutationFn: () => api.put<DirectoryListingSync>(`/listing/${bucketName}`),
+    ...options,
+  });
+};
+
+/** Removes every generated listing page; website access is left as it is. */
+export const useDisableDirectoryListing = (
+  bucketName: string,
+  options?: UseMutationOptions<{ deleted: number }, Error, void>
+) => {
+  return useMutation({
+    mutationFn: () => api.delete<{ deleted: number }>(`/listing/${bucketName}`),
+    ...options,
+  });
 };
 
 export const useAddAlias = (
