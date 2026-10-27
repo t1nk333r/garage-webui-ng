@@ -28,14 +28,14 @@ RUN pnpm run build
 # Must be >= the `go` directive in backend/go.mod (1.25.0, raised by
 # modernc.org/sqlite), otherwise the build stalls on a toolchain download.
 #
-# Pinned to an EXACT patch on purpose. A floating `golang:1.25-alpine` resolves
-# to whatever 1.25.x the registry serves that day, which is how a stdlib patch
-# with open advisories ends up in a release image. 1.25.13 carries the fixes for
-# the crypto/tls, crypto/x509, net, net/textproto and net/http/httputil
-# advisories that govulncheck (blocking, in the Jenkinsfile) flags on older
-# 1.25 patches. Bumping this is a deliberate chore: keep it in lockstep with
-# the Go version baked into the Jenkins agent image (see the `Jenkinsfile` header).
-FROM --platform=$BUILDPLATFORM golang:1.25.13-alpine AS backend
+# Pinned to an EXACT patch on purpose. A floating `golang:1.27-alpine` resolves
+# to whatever 1.27.x the registry serves that day, which is how a stdlib patch
+# with open advisories ends up in a release image. 1.27.3 is clean under
+# govulncheck (blocking in CI); 1.25.13 had twelve standard-library advisories
+# whose fixes only reached 1.26.9+. Bumping this is a deliberate chore: keep it
+# in lockstep with GO_VERSION in .github/workflows/ci.yml, which fails when the
+# two differ.
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS backend
 WORKDIR /app
 
 # The release version, injected into the binary below. Passed by CI as the git
