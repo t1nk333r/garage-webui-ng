@@ -2,6 +2,8 @@ package router
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -183,8 +185,9 @@ func TestListingWritesAPagePerFolder(t *testing.T) {
 			t.Errorf("odd page lacks %s", want)
 		}
 	}
-	if strings.Contains(odd, "<script") {
-		t.Error("an object name reached the page unescaped")
+	// The page's own sort script is the one <script> allowed.
+	if n := strings.Count(odd, "<script"); n != 1 {
+		t.Errorf("odd page has %d <script> tags, want only the sort script: an object name reached the page unescaped", n)
 	}
 
 	for _, key := range f.Keys() {
@@ -193,6 +196,60 @@ func TestListingWritesAPagePerFolder(t *testing.T) {
 		}
 		if page := f.ObjectBody(key); strings.Contains(page, `href="./index.html"`) {
 			t.Errorf("%s lists itself", key)
+		}
+	}
+}
+
+// renderSampleListingPage renders hp/ holding a folder and one file.
+func renderSampleListingPage(t *testing.T) string {
+	t.Helper()
+	page, err := renderListingPage(&listingFolder{
+		prefix:  "hp/",
+		folders: map[string]bool{"deep": true},
+		files:   []listingFile{{name: "x.png", size: 2048, modified: time.Unix(1700000000, 0)}},
+	}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(page)
+}
+
+// The sort script runs only because the CSP names its hash. A change to the
+// script without the hash, or html/template rewriting it (it strips JS
+// comments), would leave every table silently unsortable.
+func TestListingPageScriptMatchesItsHash(t *testing.T) {
+	body := renderSampleListingPage(t)
+
+	if !strings.Contains(body, "<script>"+listingScript+"</script>") {
+		t.Fatal("the rendered page does not carry listingScript byte for byte")
+	}
+	sum := sha256.Sum256([]byte(listingScript))
+	want := "script-src 'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "';"
+	if !strings.Contains(body, want) {
+		t.Errorf("CSP lacks %s", want)
+	}
+}
+
+// The script sorts the rows of tbody#entries by their data attributes: files
+// carry size and time, folders carry neither, and the parent link sits
+// outside so it stays on top.
+func TestListingPageRowsCarrySortKeys(t *testing.T) {
+	body := renderSampleListingPage(t)
+
+	entries := strings.Index(body, `<tbody id="entries">`)
+	parent := strings.Index(body, `<a href="../">../</a>`)
+	if entries < 0 || parent < 0 || parent > entries {
+		t.Errorf("parent row at %d, entries body at %d: the parent link must come before the sortable rows", parent, entries)
+	}
+	for _, want := range []string{
+		`<tr><td class="n"><a href="./deep/">deep/</a>`,
+		`<tr data-size="2048" data-time="1700000000"><td class="n"><a href="./x.png">x.png</a>`,
+		`<th scope="col" data-sort="name" aria-sort="ascending">Name</th>`,
+		`data-sort="size"`,
+		`data-sort="time"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page lacks %s", want)
 		}
 	}
 }

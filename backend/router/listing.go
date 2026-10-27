@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -469,6 +471,7 @@ type listingRow struct {
 	Dir      bool
 	Size     string
 	Bytes    int64
+	Unix     int64
 	Modified string
 }
 
@@ -481,15 +484,82 @@ type listingPageData struct {
 	Summary string
 }
 
-// listingPageTemplate is self-contained: inline CSS, no script, no external
-// fetch, and a meta CSP that forbids anything else. Every link is relative,
-// so the page works whatever host or path the site is served under.
+// listingScript sorts the table when a column header is clicked: folders stay
+// first, Name starts ascending, Size and Last modified start with the largest
+// and newest. Name order is the server's own byte order, so sorting by name is
+// the original row order or its reverse. Without the script the headers stay
+// plain text and the table keeps that order.
+//
+// It is the page's only script, and the CSP admits exactly these bytes by
+// hash, so a file name that somehow escaped into the markup still could not
+// run. It must hold no comments: html/template strips them, which would break
+// the hash — TestListingPageScriptMatchesItsHash fails if it does.
+const listingScript = `(function () {
+  var body = document.getElementById("entries");
+  if (!body || body.rows.length < 2) return;
+  var rows = Array.prototype.map.call(body.rows, function (row, i) {
+    return {
+      row: row,
+      i: i,
+      dir: !row.hasAttribute("data-size"),
+      size: Number(row.getAttribute("data-size")),
+      time: Number(row.getAttribute("data-time"))
+    };
+  });
+  var heads = document.querySelectorAll("th[data-sort]");
+  var key = "name";
+  var desc = false;
+  function sort() {
+    rows.sort(function (a, b) {
+      if (a.dir !== b.dir) return a.dir ? -1 : 1;
+      var d = key === "name" ? a.i - b.i : a.dir ? 0 : a[key] - b[key];
+      return (desc ? -d : d) || a.i - b.i;
+    });
+    var frag = document.createDocumentFragment();
+    rows.forEach(function (r) { frag.appendChild(r.row); });
+    body.appendChild(frag);
+    Array.prototype.forEach.call(heads, function (th) {
+      if (th.getAttribute("data-sort") === key) {
+        th.setAttribute("aria-sort", desc ? "descending" : "ascending");
+      } else {
+        th.removeAttribute("aria-sort");
+      }
+    });
+  }
+  Array.prototype.forEach.call(heads, function (th) {
+    var button = document.createElement("button");
+    button.type = "button";
+    button.textContent = th.textContent;
+    th.textContent = "";
+    th.appendChild(button);
+    button.addEventListener("click", function () {
+      var k = th.getAttribute("data-sort");
+      desc = k === key ? !desc : k !== "name";
+      key = k;
+      sort();
+    });
+  });
+})();
+`
+
+// listingScriptHash is the CSP source for listingScript.
+var listingScriptHash = func() string {
+	sum := sha256.Sum256([]byte(listingScript))
+	return "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
+}()
+
+// listingPageTemplate is self-contained: inline CSS, listingScript and
+// nothing else, no external fetch, and a meta CSP that forbids anything
+// more. Every link is relative, so the page works whatever host or path the
+// site is served under. The sort arrow is declared twice: the second gives it
+// empty alt text, since aria-sort already announces the order, and the first
+// is the fallback for browsers that cannot parse that.
 var listingPageTemplate = template.Must(template.New("listing").Parse(`<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src ` + listingScriptHash + `; base-uri 'none'; form-action 'none'">
 <meta name="generator" content="Garage WebUI-NG">
 <title>Index of {{.Path}}</title>
 <style>
@@ -504,6 +574,10 @@ a:hover{text-decoration:underline}
 table{width:100%;border-collapse:collapse}
 th,td{padding:.4rem .6rem;text-align:left;border-bottom:1px solid var(--line)}
 th{font-size:.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+th button{font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;background:none;border:0;padding:0;cursor:pointer}
+th button:hover{color:var(--fg)}
+th[aria-sort=ascending] button::after{content:" \2191";content:" \2191"/""}
+th[aria-sort=descending] button::after{content:" \2193";content:" \2193"/""}
 td.n{overflow-wrap:anywhere}
 .s,.d{white-space:nowrap;color:var(--muted);font-variant-numeric:tabular-nums}
 .s{text-align:right}
@@ -516,13 +590,15 @@ footer{margin-top:1.5rem}
 <main>
 <h1>Index of {{range .Crumbs}}<a href="{{.Href}}">{{.Name}}</a>{{end}}</h1>
 <table>
-<thead><tr><th>Name</th><th class="s">Size</th><th class="d">Last modified (UTC)</th></tr></thead>
-<tbody>
+<thead><tr><th scope="col" data-sort="name" aria-sort="ascending">Name</th><th scope="col" class="s" data-sort="size">Size</th><th scope="col" class="d" data-sort="time">Last modified (UTC)</th></tr></thead>
 {{- if .Parent}}
+<tbody>
 <tr><td class="n"><a href="../">../</a></td><td class="s">-</td><td class="d">-</td></tr>
+</tbody>
 {{- end}}
+<tbody id="entries">
 {{- range .Rows}}
-<tr><td class="n"><a href="{{.Href}}">{{.Name}}</a></td>{{if .Dir}}<td class="s">-</td><td class="d">-</td>{{else}}<td class="s" title="{{.Bytes}} bytes">{{.Size}}</td><td class="d">{{.Modified}}</td>{{end}}</tr>
+<tr{{if not .Dir}} data-size="{{.Bytes}}" data-time="{{.Unix}}"{{end}}><td class="n"><a href="{{.Href}}">{{.Name}}</a></td>{{if .Dir}}<td class="s">-</td><td class="d">-</td>{{else}}<td class="s" title="{{.Bytes}} bytes">{{.Size}}</td><td class="d">{{.Modified}}</td>{{end}}</tr>
 {{- end}}
 </tbody>
 </table>
@@ -534,6 +610,7 @@ footer{margin-top:1.5rem}
 {{- end}}
 <footer>{{.Summary}}<br>Generated by Garage WebUI-NG</footer>
 </main>
+<script>` + listingScript + `</script>
 </body>
 </html>
 `))
@@ -575,6 +652,7 @@ func renderListingPage(f *listingFolder, unlisted int) ([]byte, error) {
 			Href:     "./" + url.PathEscape(file.name),
 			Size:     humanListingSize(file.size),
 			Bytes:    file.size,
+			Unix:     file.modified.Unix(),
 			Modified: file.modified.UTC().Format("2006-01-02 15:04"),
 		})
 		if file.modified.After(newest) {
