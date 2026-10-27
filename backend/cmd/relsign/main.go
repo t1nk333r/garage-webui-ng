@@ -95,7 +95,7 @@ func runKeygen(args []string, stdout, stderr io.Writer) error {
 
 	fmt.Fprintln(stdout, hex.EncodeToString(priv))
 	fmt.Fprintln(stderr, "PUBLIC KEY (hex, safe to share — paste into backend/release_key.go):", hex.EncodeToString(pub))
-	fmt.Fprintln(stderr, "NOTE: stdout carried only the private key (hex, secret, never commit) — store it verbatim, with no label or trailing text, as the Jenkins secret-text credential `relsign-key`.")
+	fmt.Fprintln(stderr, "NOTE: stdout carried only the private key (hex, secret, never commit) — store it verbatim, with no label or trailing text, as the GitHub Actions repository secret RELEASE_SIGNING_KEY.")
 	return nil
 }
 

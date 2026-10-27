@@ -12,10 +12,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 Frontend lives at the repo root (package manager: **pnpm**); backend under `backend/` (**Go 1.25+** — the `go` directive in `backend/go.mod` is `1.25.0`, raised by `modernc.org/sqlite`; the Docker builder pins an **exact** patch,
-currently `1.25.13` / `golang:1.25.13-alpine`, in the single in-repo site —
-the `Dockerfile` — plus the Jenkins agent image (out of repo; its version is
-recorded in the `Jenkinsfile` header comment) which must stay in lockstep,
-since `govulncheck` in the `Jenkinsfile` runs under that agent's toolchain. A
+currently `1.27.3` / `golang:1.27.3-alpine`, in two places — the
+`Dockerfile` and `GO_VERSION` in `.github/workflows/ci.yml` — which must stay in
+lockstep (the CI backend job fails when they differ), since `govulncheck` in CI
+runs under that toolchain. A
 floating minor is what let a vulnerable stdlib patch into a release build, and
 `govulncheck` in CI is blocking, so renewing the pin is a deliberate chore
 rather than something to loosen).
@@ -34,7 +34,7 @@ Backend (`cd backend`):
 - `go vet ./...` · `gofmt -l .`
 - `make` — **release build** (`CGO_ENABLED=0 go build -o main -tags=prod main.go`). Requires `backend/ui/dist/` to exist (the built frontend, copied in). A clean checkout cannot `make` until you run the frontend build and copy `dist` → `backend/ui/dist`.
 
-`docker build .` runs the full pipeline (frontend build → Go build with embedded UI → `scratch` image). CI is the root `Jenkinsfile` (lint non-blocking, typecheck/test/build, Go build/vet/gofmt/test, blocking `govulncheck`, advisory `pnpm audit`; on `main` it also builds and pushes the multi-arch image to GHCR, and on a `v*` tag it additionally builds signed release binaries). There is no GitHub Actions workflow left in this repo — see [`docs/ci-jenkins.md`](docs/ci-jenkins.md) for the surrounding setup, credentials and constraints.
+`docker build .` runs the full pipeline (frontend build → Go build with embedded UI → `scratch` image). CI is GitHub Actions, one workflow, `.github/workflows/ci.yml` (lint non-blocking, typecheck/test/build, Go build/vet/gofmt/test, blocking `govulncheck`, advisory `pnpm audit`; on `main` it also builds and pushes the multi-arch image to GHCR with the workflow's own token, and on a `v*` tag it pushes the versioned image and publishes a GitHub release with signed binaries). The repo is public, so GitHub-hosted runners are unmetered; CI ran on a self-hosted Jenkins for a while when it was not.
 
 ## Architecture (the parts that span multiple files)
 
@@ -134,10 +134,10 @@ out here, so an agent working nearby doesn't fly blind:
 - **Release signing.** `backend/cmd/relsign` (sign/verify/keygen, stdlib
   crypto only) and `backend/release_key.go` (the compiled-in public key) back
   a `SHA256SUMS` + `SHA256SUMS.sig` pair produced for every tagged release.
-  The private key lives only in the Jenkins `relsign-key` credential; the
-  signing stage in the `Jenkinsfile` has no fallback, so the release job fails
-  outright if that credential is missing rather than shipping unsigned
-  artifacts.
+  The private key lives only in the `RELEASE_SIGNING_KEY` repository secret;
+  the release job has no fallback, so it fails outright if that secret is
+  missing, or if the signature does not verify against `release_key.go`,
+  rather than shipping artifacts users cannot verify.
 
 **Lessons from recent runs:**
 - Session-touching handlers must be tested through `sessMgr.LoadAndSave(http.HandlerFunc(...))`, not called directly — `utils.Session.Get` panics without it.
