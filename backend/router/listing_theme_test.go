@@ -46,6 +46,20 @@ func TestNormalizeListingTheme(t *testing.T) {
 		t.Errorf("b1 = %q, want it trimmed", got.Colors["b1"])
 	}
 
+	// dark-pastel as a production build reports it: the minified stylesheet
+	// has no leading zeros.
+	minified := nordTheme()
+	minified.Colors = maps.Clone(minified.Colors)
+	minified.Colors["b1"] = " 27.8808% .035341 276.936817"
+	minified.Colors["p"] = " .5% .1 49.637597"
+	got, err = normalizeListingTheme(minified)
+	if err != nil {
+		t.Fatalf("minified: %v", err)
+	}
+	if got.Colors["b1"] != "27.8808% 0.035341 276.936817" || got.Colors["p"] != "0.5% 0.1 49.637597" {
+		t.Errorf("minified colors = %q, %q; want leading zeros restored", got.Colors["b1"], got.Colors["p"])
+	}
+
 	got, err = normalizeListingTheme(schema.DirectoryListingTheme{Name: "", Scheme: "dark", Colors: map[string]string{"b1": "x"}})
 	if err != nil || got.Name != "" || got.Scheme != "" || got.Colors != nil {
 		t.Errorf("empty name = %+v, %v; want the bare built-in palette", got, err)
@@ -62,6 +76,7 @@ func TestNormalizeListingTheme(t *testing.T) {
 		"style end":            func(t *schema.DirectoryListingTheme) { t.Colors["bc"] = "1% 0 0</style>" },
 		"css function":         func(t *schema.DirectoryListingTheme) { t.Colors["p"] = "var(--x)" },
 		"hex color":            func(t *schema.DirectoryListingTheme) { t.Colors["p"] = "#5e81ac" },
+		"bare dot":             func(t *schema.DirectoryListingTheme) { t.Colors["p"] = ".% . ." },
 	}
 	for name, mutate := range bad {
 		theme := nordTheme()
