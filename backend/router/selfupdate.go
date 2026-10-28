@@ -181,7 +181,7 @@ func (u *Update) Apply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. Only a writable-by-us executable can be staged in place.
-	if detectDeployment() != deploymentBinary {
+	if detectDeployment().Kind != deploymentBinary {
 		utils.ResponseErrorStatus(w, errors.New("the running executable is not writable by this process; this deployment must be updated from outside (e.g. pull a new container image or use your package manager)"), http.StatusBadRequest)
 		return
 	}

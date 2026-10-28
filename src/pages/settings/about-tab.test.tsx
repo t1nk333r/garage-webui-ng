@@ -14,7 +14,7 @@ const mockData = vi.hoisted(() => ({
         url?: string;
         updateAvailable?: boolean;
         checkFailed?: boolean;
-        deployment?: "binary" | "managed" | "unknown";
+        deployment?: "binary" | "service" | "managed" | "unknown";
         updateCommand?: string;
         canSelfUpdate?: boolean;
       }
@@ -150,6 +150,33 @@ describe("AboutTab", () => {
         "sudo systemctl stop garage-webui && sudo install -m 0755 ./garage-webui-ng /usr/local/bin/garage-webui-ng && sudo systemctl start garage-webui"
       )
     ).toBeInTheDocument();
+    expect(screen.queryByText(/runs as a systemd service/)).not.toBeInTheDocument();
+  });
+
+  it("gives a systemd service its unit's command, not the container prose", () => {
+    const command =
+      "sudo systemctl stop garage-webui.service && sudo install -m 0755 ./garage-webui-ng /usr/local/bin/garage-webui-ng && sudo systemctl start garage-webui.service";
+    mockData.config = { version: "v3.3.0" };
+    mockData.update = {
+      enabled: true,
+      current: "v3.3.0",
+      latest: "v3.4.0",
+      updateAvailable: true,
+      deployment: "service",
+      updateCommand: command,
+      canSelfUpdate: false,
+    };
+
+    render(<AboutTab />);
+
+    expect(screen.getByText(/runs as a systemd service/)).toBeInTheDocument();
+    expect(screen.getByText(command)).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "contrib/garage-update" })
+    ).toHaveAttribute("href", expect.stringContaining("/contrib/garage-update"));
+    expect(screen.queryByText(/updated from outside the app/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/container/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Update now" })).not.toBeInTheDocument();
   });
 
   it("renders no command block when updateCommand is absent or empty", () => {

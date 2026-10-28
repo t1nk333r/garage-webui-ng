@@ -49,8 +49,8 @@ type UpdateCheck struct {
 	URL             string `json:"url,omitempty"`
 	UpdateAvailable bool   `json:"updateAvailable,omitempty"`
 	CheckFailed     bool   `json:"checkFailed,omitempty"`
-	// Deployment is how this instance should be updated: "binary", "managed"
-	// or "unknown". See detectDeployment.
+	// Deployment is how this instance should be updated: "binary",
+	// "service", "managed" or "unknown". See detectDeployment.
 	Deployment string `json:"deployment,omitempty"`
 	// UpdateCommand is the shell command an operator runs to update THIS
 	// deployment. Informational only — this service never executes it.
@@ -76,8 +76,9 @@ func (u *Update) Get(w http.ResponseWriter, r *http.Request) {
 	// Computed per request, never cached: a redeploy or a permissions change
 	// must be reflected immediately, not after the 6h update-check cache
 	// expires. See detectDeployment.
-	deployment := detectDeployment()
-	updateCommand := updateCommandFor(deployment)
+	detected := detectDeployment()
+	deployment := detected.Kind
+	updateCommand := updateCommandFor(detected)
 	// Advisory capability flag — Apply re-checks both conditions itself, since
 	// either can change between this response and that call.
 	canSelfUpdate := ReleasePublicKey != "" && deployment == deploymentBinary
@@ -240,13 +241,28 @@ const (
 	// deploymentBinary: the running executable is writable by this process's
 	// user, so the operator replaces the file and restarts the service.
 	deploymentBinary DeploymentKind = "binary"
-	// deploymentManaged: the executable is not writable by us — a container
-	// image, or a service whose binary is root-owned or on a read-only mount.
-	// The operator updates it from outside.
+	// deploymentService: the executable is not writable by us, but systemd
+	// started us as a system service, so the binary is root-owned or the unit
+	// mounts it read-only (ProtectSystem=strict). The operator installs the
+	// new binary from a shell and restarts the unit.
+	deploymentService DeploymentKind = "service"
+	// deploymentManaged: the executable is not writable by us and no systemd
+	// service started us — a container image, or a binary updated by some
+	// other means. The operator updates it from outside.
 	deploymentManaged DeploymentKind = "managed"
 	// deploymentUnknown: we could not determine our own path.
 	deploymentUnknown DeploymentKind = "unknown"
 )
+
+// deployment is what detectDeployment learned about this instance.
+type deployment struct {
+	Kind DeploymentKind
+	// Unit is the systemd service this process runs as, e.g.
+	// "garage-webui.service", or "" when systemd did not start it.
+	Unit string
+	// Executable is the path of the running binary, or "" when unknown.
+	Executable string
+}
 
 // detectDeployment reports how this instance should be updated.
 //
@@ -254,14 +270,17 @@ const (
 // unreliable across Docker, podman, Kubernetes and nerdctl, and it is the wrong
 // question. The question that decides the advice is whether we could replace
 // our own executable at all, so that is what we test: can the current user
-// write the file we are running from?
+// write the file we are running from? When we cannot, the one positive signal
+// worth trusting is that systemd started us (see systemdUnit): then the
+// advice is the unit's own restart sequence, not "replace the container".
 //
 // Fails to "managed" on any doubt: telling a container operator to overwrite a
 // binary is worse advice than telling a binary operator to check their setup.
-func detectDeployment() DeploymentKind {
+func detectDeployment() deployment {
+	unit := systemdUnit()
 	path, execErr := os.Executable()
 	if execErr != nil {
-		return classifyOpenResult(execErr, nil)
+		return deployment{Kind: classifyOpenResult(execErr, nil, unit != ""), Unit: unit}
 	}
 
 	// Open for write and immediately close; never truncate, never write a
@@ -270,38 +289,108 @@ func detectDeployment() DeploymentKind {
 	if openErr == nil {
 		f.Close()
 	}
-	return classifyOpenResult(nil, openErr)
+	return deployment{
+		Kind:       classifyOpenResult(nil, openErr, unit != ""),
+		Unit:       unit,
+		Executable: path,
+	}
 }
 
 // classifyOpenResult turns the outcome of the write-probe into a kind.
-func classifyOpenResult(execErr, openErr error) DeploymentKind {
+// systemService reports whether systemd started this process as a service.
+func classifyOpenResult(execErr, openErr error, systemService bool) DeploymentKind {
 	if execErr != nil {
 		return deploymentUnknown
 	}
 	if openErr != nil {
 		// Fail safe: any open error (permission denied, read-only mount, or
-		// anything else) is treated as "managed", never "binary".
+		// anything else) is never "binary".
+		if systemService {
+			return deploymentService
+		}
 		return deploymentManaged
 	}
 	return deploymentBinary
 }
 
-// updateCommandFor returns the shell command that updates a deployment of the
-// given kind. Informational only: nothing in this service ever runs it.
+// systemdUnit names the system service this process runs as, or "" when
+// systemd did not start it. systemd sets INVOCATION_ID for every unit it
+// starts, and puts the unit's processes in a cgroup named after the unit.
+// A container runtime sets neither, so this does not sniff for containers.
+func systemdUnit() string {
+	if os.Getenv("INVOCATION_ID") == "" {
+		return ""
+	}
+	data, err := os.ReadFile("/proc/self/cgroup")
+	if err != nil {
+		return ""
+	}
+	return serviceFromCgroup(string(data))
+}
+
+// serviceFromCgroup extracts the system service from /proc/self/cgroup: the
+// unified line ("0::/system.slice/garage-webui.service") or, on a legacy
+// hierarchy, the name=systemd one. The innermost *.service segment wins, so a
+// process in a delegated subgroup still names its unit. A unit under a user
+// manager (user@UID.service) is not a system service: "sudo systemctl" would
+// not reach it, so it yields "".
+func serviceFromCgroup(cgroup string) string {
+	for _, line := range strings.Split(cgroup, "\n") {
+		fields := strings.SplitN(line, ":", 3)
+		unified := len(fields) == 3 && fields[0] == "0" && fields[1] == ""
+		legacy := len(fields) == 3 && fields[1] == "name=systemd"
+		if !unified && !legacy {
+			continue
+		}
+		segments := strings.Split(fields[2], "/")
+		for _, segment := range segments {
+			if strings.HasPrefix(segment, "user@") {
+				return ""
+			}
+		}
+		for i := len(segments) - 1; i >= 0; i-- {
+			if strings.HasSuffix(segments[i], ".service") && len(segments[i]) > len(".service") {
+				return segments[i]
+			}
+		}
+	}
+	return ""
+}
+
+// updateCommandFor returns the shell command that updates a deployment.
+// Informational only: nothing in this service ever runs it.
 //
-// deploymentManaged deliberately returns "": that kind covers both a
-// container image AND a hardened systemd service (root-owned binary, e.g.
-// under ProtectSystem=strict) — two setups with no shared update command. A
-// container operator has no compose file to pull; a hardened-service operator
-// has no container to replace. We cannot tell the two apart without exactly
-// the runtime sniffing this feature rejects (see detectDeployment), so rather
-// than guess and mis-advise whichever one we guessed wrong, we say nothing
-// and let the UI render generic "updated from outside" prose instead.
-func updateCommandFor(kind DeploymentKind) string {
-	switch kind {
-	case deploymentBinary:
-		return "sudo systemctl stop garage-webui && sudo install -m 0755 ./garage-webui-ng /usr/local/bin/garage-webui-ng && sudo systemctl start garage-webui"
+// It names the systemd unit and the executable that were detected, falling
+// back to the documented defaults for a writable binary started some other
+// way. deploymentManaged deliberately returns "": it covers a container image
+// and anything else we could not identify, with no shared update command, so
+// rather than guess and mis-advise whichever one we guessed wrong, we say
+// nothing and let the UI render generic "updated from outside" prose instead.
+func updateCommandFor(d deployment) string {
+	switch d.Kind {
+	case deploymentBinary, deploymentService:
+		unit, executable := "garage-webui", "/usr/local/bin/garage-webui-ng"
+		if d.Unit != "" {
+			unit = d.Unit
+		}
+		if d.Executable != "" {
+			executable = d.Executable
+		}
+		unit, executable = shellQuote(unit), shellQuote(executable)
+		return "sudo systemctl stop " + unit +
+			" && sudo install -m 0755 ./garage-webui-ng " + executable +
+			" && sudo systemctl start " + unit
 	default:
 		return ""
 	}
+}
+
+// shellQuote leaves a word that needs no quoting as it is, and single-quotes
+// anything else: an escaped unit name ("a\x2db.service") or a path with a
+// space must reach the shell unchanged.
+func shellQuote(s string) string {
+	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@%+=:,./_-") == "" {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
