@@ -53,8 +53,16 @@ func normalizeListingTheme(t schema.DirectoryListingTheme) (schema.DirectoryList
 	}
 	colors := make(map[string]string, len(listingThemeColors))
 	for _, k := range listingThemeColors {
-		// The browser reports a custom property with its leading space.
-		v := strings.Join(strings.Fields(t.Colors[k]), " ")
+		// The browser reports a custom property with its leading space, and
+		// as the stylesheet wrote it: the production build's minifier drops
+		// a number's leading zero (".035341").
+		fields := strings.Fields(t.Colors[k])
+		for i, f := range fields {
+			if strings.HasPrefix(f, ".") {
+				fields[i] = "0" + f
+			}
+		}
+		v := strings.Join(fields, " ")
 		if !listingThemeOKLCH.MatchString(v) {
 			return schema.DirectoryListingTheme{}, fmt.Errorf("%w: color %s is not an OKLCH triple", errListingTheme, k)
 		}
