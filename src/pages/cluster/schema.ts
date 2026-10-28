@@ -12,7 +12,7 @@ export const assignNodeSchema = z
   .object({
     nodeId: z.string().min(1, "Node ID is required"),
     zone: z.string().min(1, 'Zone is required, e.g. "dc1"'),
-    capacity: z.coerce.number().nullish(),
+    capacity: z.coerce.number<number>().nullish(),
     capacityUnit: z.enum(capacityUnits),
     isGateway: z.boolean(),
     tags: z.string().min(1).array(),
