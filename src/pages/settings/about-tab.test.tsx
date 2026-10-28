@@ -143,14 +143,13 @@ describe("AboutTab", () => {
     render(<AboutTab />);
 
     expect(
-      screen.getByText(/Download the release binary first, then/)
+      screen.getByText(/Download the release binary, then run/)
     ).toBeInTheDocument();
     expect(
       screen.getByText(
         "sudo systemctl stop garage-webui && sudo install -m 0755 ./garage-webui-ng /usr/local/bin/garage-webui-ng && sudo systemctl start garage-webui"
       )
     ).toBeInTheDocument();
-    expect(screen.queryByText(/runs as a systemd service/)).not.toBeInTheDocument();
   });
 
   it("gives a systemd service its unit's command, not the container prose", () => {
@@ -169,7 +168,6 @@ describe("AboutTab", () => {
 
     render(<AboutTab />);
 
-    expect(screen.getByText(/runs as a systemd service/)).toBeInTheDocument();
     expect(screen.getByText(command)).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "contrib/garage-update" })
@@ -191,7 +189,7 @@ describe("AboutTab", () => {
     render(<AboutTab />);
 
     expect(
-      screen.queryByText(/Download the release binary first/)
+      screen.queryByText(/Download the release binary, then run/)
     ).not.toBeInTheDocument();
     expect(
       screen.queryByText(/updated from outside the app/)
