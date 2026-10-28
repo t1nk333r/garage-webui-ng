@@ -99,7 +99,7 @@ and expected on any restart after the first.
 `AUTH_VIEWER_USER_PASS` from your compose file / unit / `.env` and recreate the
 container. From here on they are dead weight.
 
-> ### ⚠️ The one trap: keeping the variables *and* running without a volume
+> ### The one trap: keeping the variables *and* running without a volume
 >
 > If you leave `AUTH_USER_PASS` set **and** never mount `/data`, then every
 > container recreation starts from an empty database, silently re-imports the
@@ -144,7 +144,7 @@ Paths A and B assume Docker. If you run the binary directly — the usual shape
 inside an LXC container alongside Garage — the account migration works exactly
 the same, but **two things bite that Docker users never see**.
 
-> #### ⚠️ Trap 1: `ExecStart` still points at the old binary
+> #### Trap 1: `ExecStart` still points at the old binary
 >
 > The binary is now named `garage-webui-ng`, not `garage-webui`. Installing the
 > new one **next to** the old one and restarting the service changes nothing:
@@ -152,7 +152,7 @@ the same, but **two things bite that Docker users never see**.
 > new setting. The service starts cleanly and looks healthy, so this is easy to
 > miss. Update `ExecStart`.
 
-> #### ⚠️ Trap 2: the default `DB_PATH` is relative
+> #### Trap 2: the default `DB_PATH` is relative
 >
 > `DB_PATH` defaults to `./data/garage-webui-ng.db` — relative to the process's
 > working directory. Under systemd that directory is `/` unless you set
