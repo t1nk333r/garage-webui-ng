@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@floating-ui/react": "^0.27.20",
-    "@hookform/resolvers": "^3.9.0",
+    "@hookform/resolvers": "^5.9.2",
     "@tanstack/react-query": "^5.51.23",
     "clsx": "^2.1.1",
     "dayjs": "^1.11.12",
@@ -26,13 +26,13 @@
     "react": "^18.3.1",
     "react-daisyui": "^5.0.3",
     "react-dom": "^18.3.1",
-    "react-hook-form": "^7.52.2",
-    "react-router-dom": "^6.30.1",
+    "react-hook-form": "^7.55.0",
+    "react-router-dom": "^7.18.5",
     "react-select": "^5.8.0",
     "recharts": "^3.10.1",
     "sonner": "^1.5.0",
     "tailwind-merge": "^2.5.2",
-    "zod": "^3.23.8",
+    "zod": "^4.6.7",
     "zustand": "^4.5.4"
   },
   "devDependencies": {
