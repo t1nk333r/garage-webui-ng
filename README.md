@@ -11,7 +11,7 @@
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](backend/go.mod)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](package.json)
 
-[Features](#-key-features) · [Screenshots](#-screenshots) · [Quick Start](#-installation) · [Configuration](#️-configuration) · [API](#-api) · [Authentication](docs/authentication.md) · [Upgrading](docs/UPGRADING.md) · [Roadmap](#️-roadmap)
+[Features](#key-features) · [Screenshots](#screenshots) · [Quick Start](#installation) · [Configuration](#configuration) · [API](#api) · [Authentication](docs/authentication.md) · [Upgrading](docs/UPGRADING.md) · [Roadmap](#roadmap)
 
 <img src="docs/screenshots/dashboard-dark.png" alt="Garage WebUI-NG dashboard" width="860" />
 
@@ -19,61 +19,53 @@
 
 ---
 
-## 📖 Overview
+## Overview
 
 **Garage WebUI-NG** is the next-generation web console for operating a [Garage](https://garagehq.deuxfleurs.fr/) cluster. It ships as a **single, self-contained binary** (a Go backend that embeds the compiled React frontend) or as a **~12 MB non-root Docker image**. It is a thin, secure gateway to your existing Garage cluster; the only state it owns is a small SQLite database of its own user accounts.
 
 Point it at a running Garage node and you get a clean dashboard for cluster health, buckets, objects, access keys, static-website hosting, and object sharing — with built-in user management, a read-only operator role, and a structured audit trail.
 
-## ✨ Key Features
+## Key Features
 
-- **📊 Live dashboard** — cluster health, node/partition status, storage usage per bucket (chart and ranked breakdown), recently created buckets, and a live metrics panel (S3 requests, errors, block I/O) parsed from Garage's Prometheus endpoint.
-- **🗂️ Bucket management** — create, inspect, and configure buckets: global/local aliases, quotas, and **static website hosting** with a correct, copy-ready public URL and an optional, self-refreshing **directory listing**.
-- **📁 Object browser** — navigate prefixes, upload and download objects, create folders, **bulk-delete** selections, and clean up orphaned **multipart uploads**.
-- **🔗 Object sharing** — generate expiring **presigned links** for private objects and surface public website URLs, all from one dialog.
-- **🔑 Access keys** — create, inspect, and assign keys to buckets with fine-grained read / write / owner permissions.
-- **🔐 Users & roles** — a **first-run setup wizard**, in-app user management (**Settings → Users**), admin / fail-closed read-only **viewer** roles, self-service password change, and CSRF-protected sessions. No hand-edited environment variables. See [`docs/authentication.md`](docs/authentication.md).
-- **📝 Audit log** — every state-changing request is emitted as a structured JSON line to stdout (who / what / path / status), including denied writes.
-- **🎨 Themed UI** — a grouped sidebar, breadcrumbs, a storage dashboard and a sortable bucket table, with 11 light/dark themes defaulting to **Dark Pastel**; every theme shares pastel's rounded controls. The theme lives in **Settings → Appearance** and is stored per browser. Fully responsive down to mobile.
-- **🚀 Production-ready** — multi-arch (amd64/arm64) image, non-root runtime, healthcheck, graceful shutdown, and GHCR publishing out of the box.
+- **Live dashboard** — cluster health, node/partition status, storage usage per bucket (chart and ranked breakdown), recently created buckets, and a live metrics panel (S3 requests, errors, block I/O) parsed from Garage's Prometheus endpoint.
+- **Bucket management** — create, inspect, and configure buckets: global/local aliases, quotas, and **static website hosting** with a correct, copy-ready public URL and an optional, self-refreshing **directory listing**.
+- **Object browser** — navigate prefixes, upload and download objects, create folders, **bulk-delete** selections, and clean up orphaned **multipart uploads**.
+- **Object sharing** — generate expiring **presigned links** for private objects and surface public website URLs, all from one dialog.
+- **Access keys** — create, inspect, and assign keys to buckets with fine-grained read / write / owner permissions.
+- **Users & roles** — a **first-run setup wizard**, in-app user management (**Settings → Users**), admin / fail-closed read-only **viewer** roles, self-service password change, and CSRF-protected sessions. No hand-edited environment variables. See [`docs/authentication.md`](docs/authentication.md).
+- **Audit log** — every state-changing request is emitted as a structured JSON line to stdout (who / what / path / status), including denied writes.
+- **Themed UI** — a grouped sidebar, breadcrumbs, a storage dashboard and a sortable bucket table, with 11 light/dark themes defaulting to **Dark Pastel**; every theme shares pastel's rounded controls. The theme lives in **Settings → Appearance** and is stored per browser.
+- **Production-ready** — multi-arch (amd64/arm64) image, non-root runtime, healthcheck, graceful shutdown, and GHCR publishing out of the box.
 
-## 📸 Screenshots
+## Screenshots
 
 <div align="center">
 
-| Dashboard | Buckets |
+| Buckets | Bucket overview |
 |:---:|:---:|
-| [![Dashboard](docs/screenshots/dashboard-light.png)](docs/screenshots/dashboard-light.png) | [![Buckets](docs/screenshots/buckets-light.png)](docs/screenshots/buckets-light.png) |
-| **Object browser** | **Bucket overview** |
-| [![Browse](docs/screenshots/browse-light.png)](docs/screenshots/browse-light.png) | [![Overview](docs/screenshots/bucket-overview-light.png)](docs/screenshots/bucket-overview-light.png) |
-| **Access keys** | **Cluster & layout** |
-| [![Keys](docs/screenshots/keys-light.png)](docs/screenshots/keys-light.png) | [![Cluster](docs/screenshots/cluster-light.png)](docs/screenshots/cluster-light.png) |
+| [![Buckets](docs/screenshots/buckets-dark.png)](docs/screenshots/buckets-dark.png) | [![Bucket overview](docs/screenshots/bucket-overview-dark.png)](docs/screenshots/bucket-overview-dark.png) |
+| **Object browser** | **Share dialog** |
+| [![Object browser](docs/screenshots/browse-dark.png)](docs/screenshots/browse-dark.png) | [![Share dialog](docs/screenshots/share-export.png)](docs/screenshots/share-export.png) |
+| **Access keys** | **Cluster** |
+| [![Access keys](docs/screenshots/keys-dark.png)](docs/screenshots/keys-dark.png) | [![Cluster](docs/screenshots/cluster-dark.png)](docs/screenshots/cluster-dark.png) |
 
-**Share / export dialog** — presigned private links + public website URL
+**Generated directory listing**
 
-[![Share](docs/screenshots/share-export.png)](docs/screenshots/share-export.png)
+[![Directory listing](docs/screenshots/directory-listing.png)](docs/screenshots/directory-listing.png)
 
-**First-run setup wizard** — the one-time administrator account on a brand-new instance
-
-[![Setup wizard](docs/screenshots/setup-wizard.png)](docs/screenshots/setup-wizard.png)
-
-| Settings → Users | Settings → Account |
+| First-run setup | Settings → Users |
 |:---:|:---:|
-| [![Users](docs/screenshots/settings-users.png)](docs/screenshots/settings-users.png) | [![Account](docs/screenshots/settings-account.png)](docs/screenshots/settings-account.png) |
+| [![Setup](docs/screenshots/setup-wizard.png)](docs/screenshots/setup-wizard.png) | [![Users](docs/screenshots/settings-users.png)](docs/screenshots/settings-users.png) |
 
-**Dark mode**
+**Light theme (Pastel)**
 
 | Dashboard | Object browser |
 |:---:|:---:|
-| [![Dashboard dark](docs/screenshots/dashboard-dark.png)](docs/screenshots/dashboard-dark.png) | [![Browse dark](docs/screenshots/browse-dark.png)](docs/screenshots/browse-dark.png) |
-
-**Mobile**
-
-<img src="docs/screenshots/mobile-dashboard.png" width="220" /> <img src="docs/screenshots/mobile-buckets.png" width="220" /> <img src="docs/screenshots/mobile-browse.png" width="220" />
+| [![Dashboard, light](docs/screenshots/dashboard-light.png)](docs/screenshots/dashboard-light.png) | [![Object browser, light](docs/screenshots/browse-light.png)](docs/screenshots/browse-light.png) |
 
 </div>
 
-## 🏗️ Architecture
+## Architecture
 
 Garage WebUI-NG is a **gateway** between your browser and two Garage APIs, plus a small local store for its own user accounts.
 
@@ -98,7 +90,7 @@ Garage WebUI-NG is a **gateway** between your browser and two Garage APIs, plus 
 
 See [CLAUDE.md](CLAUDE.md) for a deeper architecture reference.
 
-## 🚀 Installation
+## Installation
 
 ### Docker (quickest)
 
@@ -152,7 +144,7 @@ Both must pass: the first alone says nothing about who produced the checksums.
 
 Releases up to `v3.8.x` were signed with an earlier key that has since been lost; `v3.9.1` and later use the current one. A binary older than `v3.9.1` therefore refuses to update itself to a newer release — update it by hand once. Key management: [`docs/ci-and-releases.md`](docs/ci-and-releases.md).
 
-## 🐳 Docker Deployment
+## Docker Deployment
 
 The image is multi-arch (`linux/amd64`, `linux/arm64`), runs as a **non-root** user (uid/gid `65532`), exposes a **healthcheck**, and shuts down gracefully on `SIGTERM`.
 
@@ -164,7 +156,7 @@ Tags: `latest` and `main` follow the `main` branch and `sha-<commit>` pins one o
 
 The image declares `VOLUME ["/data"]` for the user database and ships that directory owned by uid `65532`, so a **named volume** works out of the box. If you bind-mount a host directory instead, `chown 65532:65532` it first — otherwise startup fails with `cannot open user database`.
 
-## 🧩 Docker Compose Deployment
+## Docker Compose Deployment
 
 A production Compose stack (Garage + WebUI-NG) is provided. Copy the example env file and start it:
 
@@ -177,7 +169,7 @@ docker compose up -d
 
 The stack mounts the named volume `webui_data` at `/data` for the user database. On first start, open the UI and complete the setup wizard. Upgrading an existing deployment? Follow [`docs/UPGRADING.md`](docs/UPGRADING.md).
 
-## ⚙️ Configuration
+## Configuration
 
 Garage WebUI-NG reads your `garage.toml` and lets every setting be overridden by an environment variable. A full reference lives in [`.env.example`](.env.example).
 
@@ -211,7 +203,7 @@ Garage WebUI-NG reads your `garage.toml` and lets every setting be overridden by
 
 > **Users are not configured with environment variables.** Create the first administrator with the setup wizard, then manage accounts in **Settings → Users**. The two `AUTH_*` variables exist only to carry accounts over from a pre-database release; changing them afterwards has no effect. Full details in [`docs/authentication.md`](docs/authentication.md).
 
-## 🖱️ Usage
+## Usage
 
 1. On a brand-new instance, complete the **setup wizard** at `/setup` to create the administrator; it signs you straight in and never reopens.
 2. Land on the **Dashboard** for cluster health and live metrics.
@@ -243,7 +235,7 @@ bucket's Overview tab; there is no separate ACL or "public" flag.
    a **Copy URL** action; the same permanent URL is also on the row's
    **Share** dialog and as an **[Open]** link. The **Website** link at the end
    of the bucket's tab row opens the site itself.
-4. Set `S3_WEB_PUBLIC_URL` (see [Configuration](#️-configuration)) so those
+4. Set `S3_WEB_PUBLIC_URL` (see [Configuration](#configuration)) so those
    URLs point at an address your users can reach. Without it they are derived
    from `garage.toml`'s `[s3_web] root_domain`, which is usually reachable only
    inside your network.
@@ -343,7 +335,7 @@ argument** (argv leaks into shell history and `ps`), and there is deliberately
 **no HTTP equivalent** — these need local write access to the database file.
 Details: [`docs/authentication.md` §9](docs/authentication.md#9-lockout--recovery).
 
-## 🔌 API
+## API
 
 The backend serves everything under `/api`. It is primarily a **gateway to Garage's Admin API v2** (any unmatched `/api/v2/…` request is reverse-proxied with the admin token attached), plus first-class endpoints:
 
@@ -368,7 +360,7 @@ shapes and every error code — are documented in
 **[`docs/authentication.md` §6](docs/authentication.md#6-api-reference)**, so the
 two cannot drift.
 
-## 🔒 Security
+## Security
 
 - **Secrets stay server-side** — `rpc_secret`, `admin_token`, and `metrics_token` are never exposed to the browser (`/api/config` returns a filtered subset).
 - **Authentication is mandatory** — there is no open (no-auth) mode. Every API route requires a session except `GET /api/auth/status`, `GET /api/setup/status`, `POST /api/setup` and `POST /api/auth/login`.
@@ -386,7 +378,7 @@ two cannot drift.
 
 Full reference: [`docs/authentication.md`](docs/authentication.md).
 
-## 🗺️ Roadmap
+## Roadmap
 
 - [x] Live cluster metrics panel
 - [x] Bulk object delete & multipart cleanup
@@ -404,7 +396,7 @@ Full reference: [`docs/authentication.md`](docs/authentication.md).
 - [ ] Multi-factor authentication (TOTP)
 - [ ] OAuth / OIDC and LDAP sign-in
 
-## ❓ FAQ
+## FAQ
 
 **Does this replace Garage?** No — it's an admin UI for an existing Garage cluster. [Install Garage](https://garagehq.deuxfleurs.fr/documentation/quick-start/) first.
 
@@ -425,11 +417,11 @@ htpasswd -bnBC 10 "" 'your-password' | tr -d ':\n' | sed 's/^$2y/$2a/'
 
 **Why is lint "red" in CI?** A pre-existing lint backlog is tracked separately and runs non-blocking; new code is kept clean.
 
-## 🤝 Contributing
+## Contributing
 
-Contributions are welcome! Please open an issue to discuss substantial changes first. Before submitting a PR, make sure `pnpm run typecheck`, `pnpm run build`, `go build ./... && go vet ./...` and the tests your change reaches pass (see [Development](#️-development)).
+Contributions are welcome! Please open an issue to discuss substantial changes first. Before submitting a PR, make sure `pnpm run typecheck`, `pnpm run build`, `go build ./... && go vet ./...` and the tests your change reaches pass (see [Development](#development)).
 
-## 🛠️ Development
+## Development
 
 **Prerequisites:** Node 20+ with `pnpm` (via `corepack enable`) and Go 1.25+ (the `go` directive in `backend/go.mod` is `1.25.0`, raised by `modernc.org/sqlite`).
 
@@ -464,11 +456,11 @@ A **release build** (single binary with the embedded UI) is produced by copying 
 
 CI and releases run on GitHub Actions, in [`.github/workflows/ci.yml`](.github/workflows/ci.yml). Pushes to `main` and pull requests run only the tests the change can reach and skip a side it does not touch; a release tag, the nightly run and a manual run test everything. `main` publishes the image; a `v*` tag publishes the versioned image and a GitHub release with signed binaries. How the scope is decided, how to cut a release, and the signing key: [`docs/ci-and-releases.md`](docs/ci-and-releases.md).
 
-## 📄 License
+## License
 
 Released under the [MIT License](LICENSE). Garage WebUI-NG is a next-generation fork; the original copyright is retained below. Material adapted from other projects is listed, with its license, in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
-## 🙏 Acknowledgements
+## Acknowledgements
 
 - **[Garage](https://garagehq.deuxfleurs.fr/)** by [Deuxfleurs](https://deuxfleurs.fr/) — the object storage engine this UI operates.
 - **[garage-webui](https://github.com/khairul169/garage-webui)** by **Khairul Hidayat** (© 2024) — the original project this "-NG" edition builds upon, under the MIT License.
