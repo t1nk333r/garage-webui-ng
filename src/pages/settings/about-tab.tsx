@@ -153,15 +153,8 @@ const AboutTab = () => {
 
         {update?.updateCommand ? (
           <div className="mt-2">
-            {update.deployment === "service" ? (
-              <p className="text-sm text-base-content/60 mb-1">
-                This instance runs as a systemd service that cannot write its
-                own executable (for example under ProtectSystem=strict), so
-                it is updated from a shell on the host.
-              </p>
-            ) : null}
             <p className="text-sm text-base-content/60">
-              Download the release binary first, then:
+              Download the release binary, then run:
             </p>
             <div className="relative">
               <code className="block whitespace-pre-wrap break-all rounded bg-base-200 p-2 text-xs pr-10">
@@ -185,8 +178,7 @@ const AboutTab = () => {
               >
                 contrib/garage-update
               </a>
-              , which also verifies the release signature, keeps a backup and
-              rolls back an update that fails to start.
+              .
             </p>
           </div>
         ) : update?.deployment === "managed" ? (
