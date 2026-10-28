@@ -11,7 +11,7 @@ export type UpdateCheck = {
   url?: string;
   updateAvailable?: boolean;
   checkFailed?: boolean;
-  deployment?: "binary" | "managed" | "unknown";
+  deployment?: "binary" | "service" | "managed" | "unknown";
   updateCommand?: string;
   canSelfUpdate?: boolean;
 };

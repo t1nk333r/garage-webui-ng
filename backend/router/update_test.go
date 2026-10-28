@@ -171,68 +171,140 @@ func TestUpdateGetEnabledUpstreamFailure(t *testing.T) {
 
 func TestClassifyOpenResult(t *testing.T) {
 	tests := []struct {
-		name    string
-		execErr error
-		openErr error
-		want    DeploymentKind
+		name          string
+		execErr       error
+		openErr       error
+		systemService bool
+		want          DeploymentKind
 	}{
-		{name: "executable path unknown", execErr: errors.New("boom"), openErr: nil, want: deploymentUnknown},
-		{name: "writable executable", execErr: nil, openErr: nil, want: deploymentBinary},
-		{name: "permission denied", execErr: nil, openErr: fs.ErrPermission, want: deploymentManaged},
-		{name: "other open error fails safe to managed", execErr: nil, openErr: errors.New("read-only file system"), want: deploymentManaged},
+		{name: "executable path unknown", execErr: errors.New("boom"), want: deploymentUnknown},
+		{name: "executable path unknown under systemd", execErr: errors.New("boom"), systemService: true, want: deploymentUnknown},
+		{name: "writable executable", want: deploymentBinary},
+		{name: "writable executable under systemd", systemService: true, want: deploymentBinary},
+		{name: "permission denied", openErr: fs.ErrPermission, want: deploymentManaged},
+		{name: "other open error fails safe to managed", openErr: errors.New("read-only file system"), want: deploymentManaged},
+		// ProtectSystem=strict: a root process that still cannot write its
+		// binary, started by systemd.
+		{name: "read-only executable under systemd", openErr: errors.New("read-only file system"), systemService: true, want: deploymentService},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := classifyOpenResult(tt.execErr, tt.openErr); got != tt.want {
-				t.Errorf("classifyOpenResult(%v, %v) = %v, want %v", tt.execErr, tt.openErr, got, tt.want)
+			if got := classifyOpenResult(tt.execErr, tt.openErr, tt.systemService); got != tt.want {
+				t.Errorf("classifyOpenResult(%v, %v, %v) = %v, want %v", tt.execErr, tt.openErr, tt.systemService, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestServiceFromCgroup(t *testing.T) {
+	tests := []struct {
+		name   string
+		cgroup string
+		want   string
+	}{
+		{name: "unified system service", cgroup: "0::/system.slice/garage-webui.service\n", want: "garage-webui.service"},
+		{name: "service in a custom slice", cgroup: "0::/storage.slice/garage-webui.service\n", want: "garage-webui.service"},
+		{name: "delegated subgroup names its unit", cgroup: "0::/system.slice/garage-webui.service/payload\n", want: "garage-webui.service"},
+		{name: "legacy hierarchy", cgroup: "12:pids:/system.slice/garage-webui.service\n1:name=systemd:/system.slice/garage-webui.service\n", want: "garage-webui.service"},
+		{name: "escaped unit name", cgroup: "0::/system.slice/garage\\x2dwebui.service\n", want: `garage\x2dwebui.service`},
+		{name: "container with a cgroup namespace", cgroup: "0::/\n", want: ""},
+		{name: "docker scope on the host hierarchy", cgroup: "0::/system.slice/docker-0123abcd.scope\n", want: ""},
+		{name: "user manager service", cgroup: "0::/user.slice/user-1000.slice/user@1000.service/app.slice/garage-webui.service\n", want: ""},
+		{name: "legacy controller line only", cgroup: "12:pids:/system.slice/garage-webui.service\n", want: ""},
+		{name: "bare suffix", cgroup: "0::/system.slice/.service\n", want: ""},
+		{name: "empty", cgroup: "", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := serviceFromCgroup(tt.cgroup); got != tt.want {
+				t.Errorf("serviceFromCgroup(%q) = %q, want %q", tt.cgroup, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSystemdUnitNeedsInvocationID(t *testing.T) {
+	// Whatever this test process's cgroup says, a process systemd did not
+	// start has no INVOCATION_ID and must not claim a unit.
+	t.Setenv("INVOCATION_ID", "")
+	if got := systemdUnit(); got != "" {
+		t.Errorf("systemdUnit() = %q without INVOCATION_ID, want \"\"", got)
 	}
 }
 
 func TestUpdateCommandFor(t *testing.T) {
 	tests := []struct {
 		name string
-		kind DeploymentKind
-		want func(cmd string) bool
+		d    deployment
+		want string
 	}{
-		// managed covers both a container AND a hardened systemd service
-		// (root-owned binary, e.g. ProtectSystem=strict) — two setups with no
-		// shared update command. Guessing one (e.g. "docker compose pull")
-		// would mis-advise the other, so this must be exactly "".
-		{name: "managed", kind: deploymentManaged, want: func(cmd string) bool {
-			return cmd == ""
-		}},
-		{name: "binary", kind: deploymentBinary, want: func(cmd string) bool {
-			return strings.Contains(cmd, "systemctl") && strings.Contains(cmd, "install")
-		}},
-		{name: "unknown", kind: deploymentUnknown, want: func(cmd string) bool {
-			return cmd == ""
-		}},
+		// managed covers a container and anything else we could not
+		// identify — setups with no shared update command. Guessing one
+		// (e.g. "docker compose pull") would mis-advise the others, so this
+		// must be exactly "".
+		{name: "managed", d: deployment{Kind: deploymentManaged, Executable: "/app/garage-webui-ng"}, want: ""},
+		{name: "unknown", d: deployment{Kind: deploymentUnknown}, want: ""},
+		{
+			name: "service names its unit and executable",
+			d:    deployment{Kind: deploymentService, Unit: "garage-webui.service", Executable: "/usr/local/bin/garage-webui-ng"},
+			want: "sudo systemctl stop garage-webui.service && sudo install -m 0755 ./garage-webui-ng /usr/local/bin/garage-webui-ng && sudo systemctl start garage-webui.service",
+		},
+		{
+			name: "service quotes what the shell would alter",
+			d:    deployment{Kind: deploymentService, Unit: `garage\x2dwebui.service`, Executable: "/opt/garage webui/garage-webui-ng"},
+			want: `sudo systemctl stop 'garage\x2dwebui.service' && sudo install -m 0755 ./garage-webui-ng '/opt/garage webui/garage-webui-ng' && sudo systemctl start 'garage\x2dwebui.service'`,
+		},
+		{
+			name: "binary outside systemd keeps the documented unit",
+			d:    deployment{Kind: deploymentBinary, Executable: "/srv/bin/garage-webui-ng"},
+			want: "sudo systemctl stop garage-webui && sudo install -m 0755 ./garage-webui-ng /srv/bin/garage-webui-ng && sudo systemctl start garage-webui",
+		},
+		{
+			name: "binary with nothing detected uses the documented defaults",
+			d:    deployment{Kind: deploymentBinary},
+			want: "sudo systemctl stop garage-webui && sudo install -m 0755 ./garage-webui-ng /usr/local/bin/garage-webui-ng && sudo systemctl start garage-webui",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := updateCommandFor(tt.kind)
-			if !tt.want(got) {
-				t.Errorf("updateCommandFor(%v) = %q, did not satisfy expectation", tt.kind, got)
+			got := updateCommandFor(tt.d)
+			if got != tt.want {
+				t.Errorf("updateCommandFor(%+v) =\n  %q\nwant\n  %q", tt.d, got, tt.want)
 			}
 			if strings.Contains(got, "\n") {
-				t.Errorf("updateCommandFor(%v) = %q, contains a newline; the UI copies it as one line", tt.kind, got)
+				t.Errorf("updateCommandFor(%+v) = %q, contains a newline; the UI copies it as one line", tt.d, got)
 			}
 		})
 	}
 
-	// Regression guard for this amendment: managed must never carry a
-	// container-specific example, even if the equality check above is
-	// weakened by a future edit.
+	// Regression guard: managed must never carry a container-specific
+	// example, even if the equality check above is weakened by a future edit.
 	t.Run("managed never suggests docker", func(t *testing.T) {
-		got := updateCommandFor(deploymentManaged)
+		got := updateCommandFor(deployment{Kind: deploymentManaged})
 		if strings.Contains(got, "docker") {
-			t.Errorf("updateCommandFor(managed) = %q, contains %q; managed also covers hardened systemd services with no docker compose file, so this command would mis-advise them", got, "docker")
+			t.Errorf("updateCommandFor(managed) = %q, contains %q; managed covers setups with no docker compose file, so this command would mis-advise them", got, "docker")
 		}
 	})
+}
+
+func TestShellQuote(t *testing.T) {
+	tests := map[string]string{
+		"garage-webui.service":           "garage-webui.service",
+		"/usr/local/bin/garage-webui-ng": "/usr/local/bin/garage-webui-ng",
+		"a b":                            "'a b'",
+		`a\x2db`:                         `'a\x2db'`,
+		"it's":                           `'it'\''s'`,
+		"$(rm -rf /)":                    "'$(rm -rf /)'",
+		"":                               "''",
+	}
+	for in, want := range tests {
+		if got := shellQuote(in); got != want {
+			t.Errorf("shellQuote(%q) = %q, want %q", in, got, want)
+		}
+	}
 }
 
 func TestDeploymentFieldsAreSetWhenDisabled(t *testing.T) {

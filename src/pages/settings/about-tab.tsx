@@ -153,6 +153,13 @@ const AboutTab = () => {
 
         {update?.updateCommand ? (
           <div className="mt-2">
+            {update.deployment === "service" ? (
+              <p className="text-sm text-base-content/60 mb-1">
+                This instance runs as a systemd service that cannot write its
+                own executable (for example under ProtectSystem=strict), so
+                it is updated from a shell on the host.
+              </p>
+            ) : null}
             <p className="text-sm text-base-content/60">
               Download the release binary first, then:
             </p>
@@ -168,6 +175,19 @@ const AboutTab = () => {
                 onClick={() => copyToClipboard(update.updateCommand || "")}
               />
             </div>
+            <p className="text-xs text-base-content/60 mt-1">
+              Or use{" "}
+              <a
+                href={`${PROJECT_URL}/tree/main/contrib/garage-update`}
+                target="_blank"
+                rel="noreferrer"
+                className="link"
+              >
+                contrib/garage-update
+              </a>
+              , which also verifies the release signature, keeps a backup and
+              rolls back an update that fails to start.
+            </p>
           </div>
         ) : update?.deployment === "managed" ? (
           <p className="text-sm text-base-content/60 mt-2">
