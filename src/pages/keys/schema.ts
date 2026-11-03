@@ -4,8 +4,11 @@ export const createKeySchema = z
   .object({
     name: z
       .string()
-      .min(1, "Key Name is required")
-      .regex(/^[a-zA-Z0-9_-]+$/, "Key Name invalid"),
+      .min(1, "Key name is required")
+      .regex(
+        /^[a-zA-Z0-9_-]+$/,
+        "Use only letters, digits, hyphens and underscores"
+      ),
     isImport: z.boolean().nullish(),
     accessKeyId: z.string().nullish(),
     secretAccessKey: z.string().nullish(),

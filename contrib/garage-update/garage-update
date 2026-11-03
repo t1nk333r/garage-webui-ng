@@ -57,16 +57,24 @@ Commands:
 Options:
   --file PATH          core/gui: install this binary instead of downloading one
   --sha256 HEX         with --file: refuse the file unless it has this SHA-256
-  -n, --dry-run        download and verify everything, then stop: change nothing
+  -n, --dry-run        download and verify everything, then stop without
+                       changing anything
   -y, --yes            do not ask for confirmation (required without a terminal)
       --force          allow a reinstall, a downgrade, a major Garage upgrade,
-                       or updating a service that is currently unhealthy
-  -h, --help           this help
+                       a version that cannot be compared, or an update to a
+                       service that is stopped or unhealthy
+  -h, --help           show this help
 
-Exit status: 0 done or nothing to do, 1 failed before anything changed,
-2 usage error, 3 failed and rolled back, 4 failed and the rollback failed too,
-5 one component was updated, then a later step failed before changing more.
-Settings: $CONF (see contrib/garage-update/README.md).
+Exit status:
+  0    done, or nothing to do
+  1    failed before anything changed
+  2    usage error
+  3    failed and rolled back
+  4    failed, and the rollback failed too
+  5    one component was updated, then a later step failed before changing more
+  130  interrupted before anything changed
+
+Settings are read from $CONF; see contrib/garage-update/README.md.
 EOF
 }
 
@@ -380,7 +388,7 @@ decide() {
 	case $cmp in
 	0)
 		if [[ $target != "$installed" ]]; then
-			ACTION=update NOTE="$installed -> $target (another build of the same version)"
+			ACTION=update NOTE="$installed to $target (another build of the same version)"
 		elif ((FORCE)); then
 			ACTION=update NOTE="reinstall $target"
 		else
@@ -388,14 +396,14 @@ decide() {
 		fi
 		;;
 	1)
-		ACTION=update NOTE="$installed -> $target"
+		ACTION=update NOTE="$installed to $target"
 		if ((guard && !FORCE)) && [[ $(py major "$target") != "$(py major "$installed")" ]]; then
-			ACTION=blocked NOTE="$installed -> $target crosses a major version: follow Garage's migration guide for it, then re-run with --force"
+			ACTION=blocked NOTE="$installed to $target crosses a major version; follow Garage's migration guide for it, then re-run with --force"
 		fi
 		;;
 	-1)
 		if ((FORCE)); then
-			ACTION=update NOTE="DOWNGRADE $installed -> $target"
+			ACTION=update NOTE="DOWNGRADE $installed to $target"
 		elif ((explicit)); then
 			ACTION=blocked NOTE="$target is older than the installed $installed; re-run with --force to downgrade"
 		else
@@ -403,7 +411,7 @@ decide() {
 		fi
 		;;
 	*)
-		if ((FORCE)); then ACTION=update NOTE="$installed -> $target"; else
+		if ((FORCE)); then ACTION=update NOTE="$installed to $target"; else
 			ACTION=blocked NOTE="cannot compare versions '$installed' and '$target'; re-run with --force to install anyway"
 		fi
 		;;
@@ -527,7 +535,7 @@ apply_core() {
 	backup_dir=$(realpath -e -- "$BACKUP_DIR")
 	case "$backup_dir/" in "$META_DIR/"*) die "BACKUP_DIR must not be inside metadata_dir ($META_DIR)" ;; esac
 	for d in "${DATA_DIRS[@]}"; do
-		case "$d/" in "$META_DIR/"*) die "data_dir $d is inside metadata_dir: back that layout up by hand" ;; esac
+		case "$d/" in "$META_DIR/"*) die "data_dir $d is inside metadata_dir; back that layout up by hand" ;; esac
 	done
 	if [[ -n $CORE_URL ]]; then
 		step "Downloading Garage $CORE_TARGET ($((CORE_SIZE >> 20)) MiB)"
@@ -541,7 +549,7 @@ apply_core() {
 	[[ $got == "$CORE_TARGET" ]] || die "the new binary reports '$got', expected $CORE_TARGET"
 	step "Verified Garage $CORE_TARGET"
 
-	[[ -n $ADMIN_HDR ]] || warn "no admin token in $GARAGE_CONFIG: skipping the bucket/key and node-version checks"
+	[[ -n $ADMIN_HDR ]] || warn "no admin token in $GARAGE_CONFIG; skipping the cluster health, node version and bucket/key checks"
 	counts_before=$(core_counts) || die "cannot list buckets and keys over the admin API"
 	meta_size=$(du -sb -- "$META_DIR" | awk '{ print $1 }')
 	size=$(stat -c %s -- "$GARAGE_BIN")
@@ -569,7 +577,7 @@ apply_core() {
 	cp -a -- "$GARAGE_BIN" "$bk/garage"
 	cp -a -- "$META_DIR" "$bk/meta"
 	cat >"$bk/RESTORE.txt" <<EOF
-Made by $PROG on $(date -u) before updating Garage $CORE_INSTALLED -> $CORE_TARGET.
+Made by $PROG on $(date -u) before updating Garage from $CORE_INSTALLED to $CORE_TARGET.
 To put it back by hand (this discards metadata changes made since):
   ${SYSTEMCTL} stop $GARAGE_SERVICE
   cp -a $bk/garage $GARAGE_BIN
@@ -593,9 +601,9 @@ EOF
 			die "bucket/key counts changed: before $counts_before, after $counts_after"
 	fi
 	journal_clean "$GARAGE_SERVICE" "$started" || die "$GARAGE_SERVICE logged a panic after starting"
-	PHASE='done' UPDATED=1 UPDATED_NOTE="the Garage update $CORE_INSTALLED -> $CORE_TARGET"
-	say "Garage updated: $CORE_INSTALLED -> $CORE_TARGET (healthy${counts_after:+; buckets/keys unchanged at ${counts_after/ //}}). Backup: $bk"
-	syslog "core $CORE_INSTALLED -> $CORE_TARGET: ok"
+	PHASE='done' UPDATED=1 UPDATED_NOTE="the Garage update from $CORE_INSTALLED to $CORE_TARGET"
+	say "Garage updated from $CORE_INSTALLED to $CORE_TARGET (healthy${counts_after:+, buckets/keys unchanged at ${counts_after/ //}}). Backup: $bk"
+	syslog "core $CORE_INSTALLED to $CORE_TARGET: ok"
 	prune_backups core || warn "could not prune old core backups"
 }
 
@@ -632,8 +640,8 @@ rollback_core() {
 	fi
 	sc start "$GARAGE_SERVICE" || warn "could not start $GARAGE_SERVICE"
 	if wait_for "$CORE_HEALTH_TIMEOUT" core_healthy; then
-		warn "rolled back: Garage $CORE_INSTALLED is running and healthy"
-		syslog "core $CORE_INSTALLED -> $CORE_TARGET: failed, rolled back"
+		warn "rolled back; Garage $CORE_INSTALLED is running and healthy"
+		syslog "core $CORE_INSTALLED to $CORE_TARGET: failed, rolled back"
 		return 0
 	fi
 	rollback_failed core "$GARAGE_SERVICE" "Garage $CORE_INSTALLED did not come back healthy"
@@ -720,7 +728,7 @@ plan_gui() { # version file sha256
 		[[ $GUI_TAG =~ ^v[0-9A-Za-z.+-]+$ ]] || die "unexpected release tag '$GUI_TAG'"
 		base="https://github.com/$WEBUI_REPO/releases/download/$GUI_TAG"
 		{ fetch "$base/SHA256SUMS" "$WORK/SHA256SUMS" 65536 60 && fetch "$base/SHA256SUMS.sig" "$WORK/SHA256SUMS.sig" 65536 60; } ||
-			die "cannot download SHA256SUMS(.sig) of release $GUI_TAG (does it exist?)"
+			die "cannot download SHA256SUMS or SHA256SUMS.sig of release $GUI_TAG (does the release exist?)"
 		verify_signature "$WORK/SHA256SUMS" "$WORK/SHA256SUMS.sig" ||
 			die "the SHA256SUMS signature of $GUI_TAG does not verify against WEBUI_PUBKEY; refusing it"
 		GUI_SHA=$(awk -v n="$GUI_ASSET" '$2 == n || $2 == "*" n { print $1 }' "$WORK/SHA256SUMS")
@@ -777,7 +785,7 @@ apply_gui() {
 	mkdir -- "$bk/db"
 	cp -a -- "${DB_FILES[@]}" "$bk/db/"
 	cat >"$bk/RESTORE.txt" <<EOF
-Made by $PROG on $(date -u) before updating WebUI-NG $GUI_INSTALLED -> $GUI_TARGET.
+Made by $PROG on $(date -u) before updating WebUI-NG from $GUI_INSTALLED to $GUI_TARGET.
 To put it back by hand (this discards user changes made since):
   ${SYSTEMCTL} stop $WEBUI_SERVICE
   cp -a $bk/garage-webui-ng $WEBUI_BIN
@@ -795,9 +803,9 @@ EOF
 		die "WebUI-NG did not respond at $WEBUI_URL within ${WEBUI_HEALTH_TIMEOUT}s${needs_setup:+ (or its setup state changed)}"
 	sc is-active --quiet "$WEBUI_SERVICE" || die "$WEBUI_SERVICE is not active"
 	journal_clean "$WEBUI_SERVICE" "$started" || die "$WEBUI_SERVICE logged a panic after starting"
-	PHASE='done' UPDATED=1 UPDATED_NOTE="the WebUI-NG update $GUI_INSTALLED -> $GUI_TARGET"
-	say "WebUI-NG updated: $GUI_INSTALLED -> $GUI_TARGET (responding at $WEBUI_URL). Backup: $bk"
-	syslog "gui $GUI_INSTALLED -> $GUI_TARGET: ok"
+	PHASE='done' UPDATED=1 UPDATED_NOTE="the WebUI-NG update from $GUI_INSTALLED to $GUI_TARGET"
+	say "WebUI-NG updated from $GUI_INSTALLED to $GUI_TARGET (responding at $WEBUI_URL). Backup: $bk"
+	syslog "gui $GUI_INSTALLED to $GUI_TARGET: ok"
 	prune_backups gui || warn "could not prune old gui backups"
 }
 
@@ -824,8 +832,8 @@ rollback_gui() {
 	fi
 	sc start "$WEBUI_SERVICE" || warn "could not start $WEBUI_SERVICE"
 	if wait_for "$WEBUI_HEALTH_TIMEOUT" gui_ready ''; then
-		warn "rolled back: WebUI-NG $GUI_INSTALLED is running"
-		syslog "gui $GUI_INSTALLED -> $GUI_TARGET: failed, rolled back"
+		warn "rolled back; WebUI-NG $GUI_INSTALLED is running"
+		syslog "gui $GUI_INSTALLED to $GUI_TARGET: failed, rolled back"
 		return 0
 	fi
 	rollback_failed gui "$WEBUI_SERVICE" "WebUI-NG $GUI_INSTALLED is not responding"
@@ -853,7 +861,7 @@ cmd_status() {
 	if [[ -n $GARAGE_PLATFORM ]] && fetch "$GARAGE_RELEASES_URL" "$WORK/garage-releases.json" 8388608 60 &&
 		out=$(py garage-release "$WORK/garage-releases.json" "$GARAGE_PLATFORM" "" 2>/dev/null); then
 		read -r latest _ <<<"$out"
-		latest="$latest  -> $(compare_note "$CORE_INSTALLED" "$latest")"
+		latest="$latest  ($(compare_note "$CORE_INSTALLED" "$latest"))"
 	fi
 	say "  latest     $latest"
 
@@ -865,7 +873,7 @@ cmd_status() {
 	latest="unknown (cannot reach the GitHub API)"
 	if fetch "https://api.github.com/repos/$WEBUI_REPO/releases/latest" "$WORK/latest.json" 1048576 60 &&
 		out=$(py json "$WORK/latest.json" tag_name 2>/dev/null); then
-		latest="$out  -> $(compare_note "$GUI_INSTALLED" "$out")"
+		latest="$out  ($(compare_note "$GUI_INSTALLED" "$out"))"
 	fi
 	say "  latest     $latest"
 }
@@ -963,7 +971,7 @@ main() {
 	[[ $cmd == gui ]] || show_plan "Garage (core)" "$CORE_ACTION" "$CORE_NOTE" "$CORE_SOURCE"
 	[[ $cmd == core ]] || show_plan "Garage WebUI-NG (gui)" "$GUI_ACTION" "$GUI_NOTE" "$GUI_SOURCE"
 	if [[ $CORE_ACTION == blocked || $GUI_ACTION == blocked ]]; then
-		die "refusing: see the plan above; nothing was changed"
+		die "the plan above blocks the update; nothing was changed"
 	fi
 	if [[ $CORE_ACTION != update && $GUI_ACTION != update ]]; then
 		say "Nothing to do."

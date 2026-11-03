@@ -27,14 +27,14 @@ func main() {
 	// -health runs a lightweight self-probe used by the container HEALTHCHECK:
 	// it issues a local HTTP request and exits 0 (healthy) or 1 (unhealthy), so
 	// the runtime image needs no shell or curl.
-	healthCheck := flag.Bool("health", false, "run a local health probe and exit (0 = healthy)")
+	healthCheck := flag.Bool("health", false, "probe the local server, then exit 0 if it is healthy or 1 if not")
 
 	// Offline account recovery. These operate directly on the SQLite file at
 	// DB_PATH and are deliberately not reachable over HTTP — an unauthenticated
 	// password-reset endpoint would be a backdoor. Passwords are prompted for,
 	// never passed as arguments (argv leaks into shell history and `ps`).
-	resetPassword := flag.String("reset-password", "", "set a new password for `username` (prompts; local database access required)")
-	createAdmin := flag.String("create-admin", "", "create a new administrator called `username` (prompts)")
+	resetPassword := flag.String("reset-password", "", "set a new password for `username` and exit; prompts for the password and needs write access to the database at DB_PATH")
+	createAdmin := flag.String("create-admin", "", "create an administrator called `username` and exit; prompts for the password")
 	listUsers := flag.Bool("list-users", false, "list accounts in the user database and exit")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 
@@ -76,7 +76,7 @@ func main() {
 	router.ReleasePublicKey = ReleasePublicKey()
 
 	if err := utils.Garage.LoadConfig(); err != nil {
-		log.Println("Cannot load garage config!", err)
+		log.Printf("Cannot load garage config: %v", err)
 	}
 
 	basePath := os.Getenv("BASE_PATH")
@@ -114,7 +114,7 @@ func main() {
 	if count, err := st.CountUsers(context.Background()); err != nil {
 		log.Printf("cannot count users: %v", err)
 	} else if count == 0 {
-		log.Printf("No users configured — open http://%s%s/setup to create the first administrator.", addr, basePath)
+		log.Printf("No users configured. Open http://%s%s/setup to create the first administrator.", addr, basePath)
 	}
 
 	mux := http.NewServeMux()

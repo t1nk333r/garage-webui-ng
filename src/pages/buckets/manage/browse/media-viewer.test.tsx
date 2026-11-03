@@ -58,7 +58,7 @@ describe("MediaViewer", () => {
     fireEvent.error(img);
 
     expect(
-      screen.getByText("Preview unavailable. You can still download the file.")
+      screen.getByText("Preview unavailable. You can still download it.")
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download" })).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: "photo.png" })).toBeNull();

@@ -20,7 +20,7 @@ export const assignNodeSchema = z
   .refine(
     (values) => values.isGateway || (values.capacity && values.capacity > 0),
     {
-      message: "Capacity required",
+      message: "Capacity is required",
       path: ["capacity"],
     }
   );

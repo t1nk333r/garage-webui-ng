@@ -170,7 +170,7 @@ const WebsiteAccessSection = () => {
       {isEnabled && (
         <>
           <p className="text-xs text-base-content/60 mt-1">
-            Anyone who can reach the Garage website endpoint can retrieve
+            Anyone who can reach the Garage website endpoint can read
             objects in this bucket without signing in. Uploads and deletions
             still require credentials.
           </p>
@@ -180,7 +180,7 @@ const WebsiteAccessSection = () => {
               <InputField
                 form={form}
                 name="websiteConfig.indexDocument"
-                title="Index Document"
+                title="Index document"
                 disabled={!canWrite || listingOn}
               />
               {listingOn ? (
@@ -189,7 +189,7 @@ const WebsiteAccessSection = () => {
                 </p>
               ) : indexPresence.presence === "missing" ? (
                 <p className="text-xs text-warning mt-1">
-                  Not found in this bucket — visitors will get an error until
+                  Not found in this bucket. Visitors will get an error until
                   you upload it.
                 </p>
               ) : null}
@@ -198,12 +198,12 @@ const WebsiteAccessSection = () => {
               <InputField
                 form={form}
                 name="websiteConfig.errorDocument"
-                title="Error Document"
+                title="Error document"
                 disabled={!canWrite}
               />
               {errorPresence.presence === "missing" ? (
                 <p className="text-xs text-warning mt-1">
-                  Not found in this bucket — visitors will get an error until
+                  Not found in this bucket. Visitors will get an error until
                   you upload it.
                 </p>
               ) : null}

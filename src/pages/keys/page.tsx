@@ -19,7 +19,7 @@ const KeysPage = () => {
   const removeKey = useRemoveKey({
     onSuccess: () => {
       refetch();
-      toast.success("Key removed!");
+      toast.success("Key removed");
     },
     onError: handleError,
   });
@@ -39,7 +39,7 @@ const KeysPage = () => {
   }, []);
 
   const onRemove = (id: string) => {
-    if (window.confirm("Are you sure you want to remove this key?")) {
+    if (window.confirm("Remove this key?")) {
       removeKey.mutate(id);
     }
   };
@@ -59,7 +59,7 @@ const KeysPage = () => {
 
   return (
     <div className="container">
-      <Page title="Keys" />
+      <Page title="Access keys" />
 
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
         <Input
@@ -78,7 +78,7 @@ const KeysPage = () => {
               <span>#</span>
               <span>Name</span>
               <span>Key ID</span>
-              <span>Secret Key</span>
+              <span>Secret key</span>
               <span />
             </Table.Head>
 

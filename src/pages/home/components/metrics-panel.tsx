@@ -25,17 +25,17 @@ const MAX_HISTORY = 30;
 // an unrecognized key still renders with a mechanically formatted label
 // instead of being dropped.
 const METRIC_LABELS: Record<string, string> = {
-  api_s3_request_counter: "S3 Requests",
-  api_s3_error_counter: "S3 Errors",
-  block_bytes_read: "Block Bytes Read",
-  block_bytes_written: "Block Bytes Written",
+  api_s3_request_counter: "S3 requests",
+  api_s3_error_counter: "S3 errors",
+  block_bytes_read: "Block bytes read",
+  block_bytes_written: "Block bytes written",
 };
 
 const isBytesMetric = (key: string) => key.startsWith("block_bytes_");
 
 const formatMetricLabel = (key: string) =>
   METRIC_LABELS[key] ??
-  key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  key.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
 
 const formatMetricValue = (key: string, value: number) =>
   isBytesMetric(key) ? readableBytes(value) : value.toLocaleString();
@@ -59,12 +59,12 @@ const MetricsPanel = ({ className }: { className?: string }) => {
 
   return (
     <Card className={cn("card-body mt-4 md:mt-8", className)}>
-      <Card.Title>Cluster Metrics (live)</Card.Title>
+      <Card.Title>Cluster metrics (live)</Card.Title>
 
       {error != null && (
         <p className="text-sm text-base-content/60">
-          Metrics unavailable — set a metrics token in garage.toml (see the{" "}
-          <code>admin</code> section of Garage&apos;s config).
+          Metrics unavailable. Set <code>metrics_token</code> in the{" "}
+          <code>[admin]</code> section of garage.toml.
         </p>
       )}
 

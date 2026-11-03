@@ -24,7 +24,7 @@ const ObjectActions = ({ prefix = "", object }: Props) => {
 
   const deleteObject = useDeleteObject(bucketName, {
     onSuccess: () => {
-      toast.success("Object deleted!");
+      toast.success(isDirectory ? "Folder deleted" : "Object deleted");
       queryClient.invalidateQueries({ queryKey: ["browse", bucketName] });
     },
     onError: handleError,
@@ -38,8 +38,8 @@ const ObjectActions = ({ prefix = "", object }: Props) => {
   const onDelete = () => {
     if (
       window.confirm(
-        `Are you sure you want to delete this ${
-          isDirectory ? "directory and its content" : "object"
+        `Delete this ${
+          isDirectory ? "folder and everything in it" : "object"
         }?`
       )
     ) {

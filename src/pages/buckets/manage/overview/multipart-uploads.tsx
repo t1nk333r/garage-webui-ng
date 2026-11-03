@@ -10,7 +10,7 @@ const MultipartUploadsSection = () => {
 
   const abortMutation = useAbortMultipart(bucketName, {
     onSuccess: () => {
-      toast.success("Orphaned multipart uploads aborted!");
+      toast.success("Unfinished multipart uploads aborted");
       refetch();
     },
     onError: handleError,
@@ -23,8 +23,8 @@ const MultipartUploadsSection = () => {
   const onAbortAll = () => {
     if (
       window.confirm(
-        "This aborts ALL in-progress multipart uploads for this bucket. " +
-          "This cannot be undone. Continue?"
+        "Abort all unfinished multipart uploads in this bucket? " +
+          "Uploads still in progress will fail. This cannot be undone."
       )
     ) {
       abortMutation.mutate({ all: true });
@@ -36,7 +36,7 @@ const MultipartUploadsSection = () => {
       <TriangleAlert size={18} className="text-warning" />
       <div className="flex-1">
         <p>
-          {data.unfinishedMultipartUploads} orphaned multipart upload
+          {data.unfinishedMultipartUploads} unfinished multipart upload
           {data.unfinishedMultipartUploads === 1 ? "" : "s"} using{" "}
           {readableBytes(data.unfinishedMultipartUploadBytes)}
         </p>

@@ -109,7 +109,7 @@ const MediaViewer = () => {
         {!item ? null : failed ? (
           <Alert status="warning" icon={<FileWarningIcon />}>
             <div className="flex flex-col gap-2">
-              <span>Preview unavailable. You can still download the file.</span>
+              <span>Preview unavailable. You can still download it.</span>
               <Button onClick={onDownload} className="self-start">
                 Download
               </Button>

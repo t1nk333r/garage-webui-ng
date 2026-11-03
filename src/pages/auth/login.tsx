@@ -19,7 +19,7 @@ export default function LoginPage() {
         <Card.Body>
           <Card.Title tag="h2">Login</Card.Title>
           <p className="text-base-content/60">
-            Enter username and password below to log in to your account
+            Enter your username and password.
           </p>
 
           <InputField

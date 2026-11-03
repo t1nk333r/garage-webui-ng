@@ -30,7 +30,7 @@ const ClusterPage = () => {
           <Card.Title className="mb-2">Details</Card.Title>
 
           {/* <DetailItem title="Node ID" value={node?.nodeId} /> */}
-          <DetailItem title="Garage Version" value={node?.garageVersion} />
+          <DetailItem title="Garage version" value={node?.garageVersion} />
           {/* <DetailItem title="Rust version" value={data?.rustVersion} /> */}
           <DetailItem title="DB engine" value={node?.dbEngine} />
           <DetailItem

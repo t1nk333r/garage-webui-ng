@@ -3,7 +3,7 @@ export type Crumb = { label: string; to?: string };
 const sectionLabels: Record<string, string> = {
   "/": "Dashboard",
   "/buckets": "Buckets",
-  "/keys": "Access Keys",
+  "/keys": "Access keys",
   "/cluster": "Cluster",
   "/settings": "Settings",
 };

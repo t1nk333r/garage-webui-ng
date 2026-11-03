@@ -32,7 +32,7 @@ const CreateKeyDialog = () => {
     onSuccess: () => {
       onClose();
       queryClient.invalidateQueries({ queryKey: ["keys"] });
-      toast.success("Key created!");
+      toast.success("Key created");
     },
     onError: handleError,
   });
@@ -48,16 +48,19 @@ const CreateKeyDialog = () => {
   return (
     <>
       <Button icon={Plus} color="primary" onClick={onOpen}>
-        Create Key
+        Create key
       </Button>
 
       <Modal ref={dialogRef} backdrop open={isOpen}>
-        <Modal.Header className="mb-1">Create New Key</Modal.Header>
+        <Modal.Header className="mb-1">Create new key</Modal.Header>
         <Modal.Body>
-          <p>Enter the details of the key you wish to create.</p>
+          <p>
+            Name the key. To add a key you already have, select Import
+            existing.
+          </p>
 
           <form onSubmit={onSubmit}>
-            <InputField form={form} name="name" title="Key Name" />
+            <InputField form={form} name="name" title="Key name" />
             <CheckboxField
               form={form}
               name="isImport"
@@ -70,12 +73,12 @@ const CreateKeyDialog = () => {
                 <InputField
                   form={form}
                   name="accessKeyId"
-                  title="Access Key ID"
+                  title="Access key ID"
                 />
                 <InputField
                   form={form}
                   name="secretAccessKey"
-                  title="Secret Access Key"
+                  title="Secret access key"
                 />
               </>
             )}

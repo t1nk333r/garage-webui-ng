@@ -182,7 +182,7 @@ func (u *Update) Apply(w http.ResponseWriter, r *http.Request) {
 
 	// 3. Only a writable-by-us executable can be staged in place.
 	if detectDeployment().Kind != deploymentBinary {
-		utils.ResponseErrorStatus(w, errors.New("the running executable is not writable by this process; this deployment must be updated from outside (e.g. pull a new container image or use your package manager)"), http.StatusBadRequest)
+		utils.ResponseErrorStatus(w, errors.New("this process cannot write to its own executable; update this deployment from outside, for example by pulling a new container image or through your package manager"), http.StatusBadRequest)
 		return
 	}
 
@@ -237,7 +237,7 @@ func (u *Update) Apply(w http.ResponseWriter, r *http.Request) {
 	// 8. THE gate. Nothing below may run if this fails, and nothing above
 	// this point has touched the filesystem.
 	if err := verifyChecksumsSignature(ReleasePublicKey, checksums, sig); err != nil {
-		log.Printf("self-update: refusing %s — checksum manifest signature invalid: %v", release.TagName, err)
+		log.Printf("self-update: refusing %s: checksum manifest signature invalid: %v", release.TagName, err)
 		utils.ResponseErrorStatus(w, errors.New("release signature verification failed; refusing to install"), http.StatusBadGateway)
 		return
 	}
@@ -250,7 +250,7 @@ func (u *Update) Apply(w http.ResponseWriter, r *http.Request) {
 	}
 	gotHash := sha256.Sum256(binBytes)
 	if hex.EncodeToString(gotHash[:]) != wantHash {
-		log.Printf("self-update: refusing %s — downloaded binary does not match its published checksum", release.TagName)
+		log.Printf("self-update: refusing %s: downloaded binary does not match its published checksum", release.TagName)
 		utils.ResponseErrorStatus(w, errors.New("downloaded binary does not match its published checksum; refusing to install"), http.StatusBadGateway)
 		return
 	}

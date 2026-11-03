@@ -111,7 +111,7 @@ const ModernDashboard = () => {
     [buckets]
   );
 
-  const pending = bucketsQuery.isError ? "—" : "…";
+  const pending = bucketsQuery.isError ? "Unknown" : "…";
 
   return (
     <div className="space-y-6">
@@ -248,9 +248,9 @@ const ModernDashboard = () => {
               <Unavailable query={bucketsQuery} what="buckets" />
             ) : recent.length === 0 ? (
               <Placeholder>
-                No buckets yet —{" "}
+                No buckets yet.{" "}
                 <Link to="/buckets" className="link">
-                  create one
+                  Create a bucket
                 </Link>
               </Placeholder>
             ) : (

@@ -24,7 +24,7 @@ const ConnectNodeDialog = () => {
     onSuccess() {
       form.reset({ nodeId: "" });
       handleHide();
-      toast.success("Node connected!");
+      toast.success("Node connected");
       queryClient.invalidateQueries({ queryKey: ["status"] });
     },
     onError(err) {
@@ -63,12 +63,12 @@ const ConnectNodeDialog = () => {
             onSubmit(e);
           }}
         >
-          <Modal.Header>Connect Node</Modal.Header>
+          <Modal.Header>Connect node</Modal.Header>
           <Modal.Body>
-            <p>Run this command in your target node to get node id:</p>
+            <p>To get the node ID, run this command on the node you want to connect:</p>
             <Code className="mt-2">docker exec garage /garage node id</Code>
 
-            <p className="mt-8">Enter node id:</p>
+            <p className="mt-8">Node ID</p>
             <Input
               placeholder="..."
               className="w-full"

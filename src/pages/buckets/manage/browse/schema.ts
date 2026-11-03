@@ -13,7 +13,7 @@ import { z } from "zod";
 export const createFolderSchema = z.object({
   name: z
     .string()
-    .min(1, "Folder Name is required")
+    .min(1, "Folder name is required")
     .refine((name) => !name.includes("/"), {
       message: 'Folder name cannot contain "/"',
     })

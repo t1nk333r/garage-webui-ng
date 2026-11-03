@@ -40,9 +40,9 @@ const emptyCreateForm: CreateUserSchema = {
   role: "viewer",
 };
 
-/** Formats a nullable timestamp; the em dash marks "never". */
-const formatDate = (value?: string | null) =>
-  value ? dayjs(value).format("YYYY-MM-DD HH:mm") : "—";
+/** Formats a nullable timestamp, showing `fallback` when there is none. */
+const formatDate = (value: string | null | undefined, fallback: string) =>
+  value ? dayjs(value).format("YYYY-MM-DD HH:mm") : fallback;
 
 /**
  * Turns "why this action is unavailable" into `MenuItem`'s disabled props.
@@ -189,8 +189,8 @@ const UsersTab = () => {
         <Card.Body>
           <Card.Title tag="h2">Administrator access required</Card.Title>
           <p className="text-sm text-base-content/60">
-            Only administrators can manage user accounts. Your own password can
-            be changed from the Account tab.
+            Only administrators can manage user accounts. You can change your
+            own password on the Account tab.
           </p>
         </Card.Body>
       </Card>
@@ -203,12 +203,12 @@ const UsersTab = () => {
         <div className="flex-1">
           <h2 className="text-lg font-medium">Users</h2>
           <p className="text-sm text-base-content/60">
-            Administrators manage the cluster; viewers have read-only access.
+            Administrators manage the cluster. Viewers have read-only access.
           </p>
         </div>
 
         <Button icon={Plus} color="primary" onClick={() => createDialog.onOpen()}>
-          Create User
+          Create user
         </Button>
       </div>
 
@@ -249,10 +249,10 @@ const UsersTab = () => {
                   </span>
 
                   <span className="whitespace-nowrap">
-                    {formatDate(user.lastLogin)}
+                    {formatDate(user.lastLogin, "Never")}
                   </span>
                   <span className="whitespace-nowrap">
-                    {formatDate(user.createdAt)}
+                    {formatDate(user.createdAt, "Unknown")}
                   </span>
 
                   <span>
@@ -333,7 +333,7 @@ const UsersTab = () => {
 
       {/* Create user */}
       <Modal ref={createDialog.dialogRef} backdrop open={createDialog.isOpen}>
-        <Modal.Header className="mb-1">Create User</Modal.Header>
+        <Modal.Header className="mb-1">Create user</Modal.Header>
         <Modal.Body>
           <form onSubmit={onSubmitCreate}>
             <InputField
@@ -390,7 +390,8 @@ const UsersTab = () => {
       {/* Reset password */}
       <Modal ref={resetDialog.dialogRef} backdrop open={resetDialog.isOpen}>
         <Modal.Header className="mb-1">
-          Reset password{resetDialog.data ? ` — ${resetDialog.data.username}` : ""}
+          Reset password
+          {resetDialog.data ? ` for ${resetDialog.data.username}` : ""}
         </Modal.Header>
         <Modal.Body>
           <p className="text-sm text-base-content/60">

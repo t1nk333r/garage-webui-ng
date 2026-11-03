@@ -6,7 +6,7 @@ export const setupSchema = z
   .object({
     username: z.string().min(1, "Username is required"),
     password: z.string().min(10, "Password must be at least 10 characters"),
-    confirmPassword: z.string().min(1, "Please confirm your password"),
+    confirmPassword: z.string().min(1, "Confirm your password"),
   })
   .refine((v) => v.password === v.confirmPassword, {
     message: "Passwords do not match",

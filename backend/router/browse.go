@@ -1229,7 +1229,7 @@ func getBucketCredentials(bucket string) (aws.CredentialsProvider, error) {
 	if !found || key.AccessKeyID == "" || key.SecretAccessKey == "" {
 		return nil, fmt.Errorf(
 			"no access key with read and write permission is assigned to bucket %q; "+
-				"grant a key read+write access to this bucket in the Permissions tab",
+				"grant a key read and write access to this bucket in the Permissions tab",
 			bucket,
 		)
 	}

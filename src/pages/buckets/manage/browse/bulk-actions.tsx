@@ -133,8 +133,8 @@ const BulkActions = ({ bucketName, selected, setSelected }: Props) => {
                       closes the modal instead, so this is always "warning". */}
                   <Alert status="warning" icon={<CircleAlertIcon />}>
                     <span>
-                      Deleted {result.deleted} of {total} —{" "}
-                      {result.errors.length} failed
+                      Deleted {result.deleted} of {total}.{" "}
+                      {result.errors.length} failed.
                     </span>
                   </Alert>
 
@@ -150,9 +150,9 @@ const BulkActions = ({ bucketName, selected, setSelected }: Props) => {
               ) : (
                 <div className="flex flex-col gap-2">
                   <p>
-                    Are you sure you want to delete {selectedKeys.length}{" "}
-                    selected object{selectedKeys.length === 1 ? "" : "s"}?
-                    This action cannot be undone.
+                    Delete {selectedKeys.length} selected object
+                    {selectedKeys.length === 1 ? "" : "s"}? This cannot be
+                    undone.
                   </p>
 
                   <ul className="text-sm max-h-48 overflow-y-auto list-disc pl-5 font-mono">
