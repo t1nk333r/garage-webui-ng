@@ -62,13 +62,40 @@ you add such a test, add its path to both scripts.
 ## Cutting a release
 
 1. Set `version` in `package.json` to `X.Y.Z` and commit.
-2. Tag the commit: `git tag -a vX.Y.Z -m "vX.Y.Z"`.
+2. Tag the commit with an annotated tag whose message lists what changed since
+   the last tag. `git tag -a vX.Y.Z` opens an editor. Put `vX.Y.Z` on the
+   first line, then a blank line, then one line per change:
+
+   ```text
+   vX.Y.Z
+
+   - feat(browse): what the new feature does
+   - fix(listing): what was wrong and is now right
+   ```
+
 3. Push the branch, then the tag.
 
-The release job refuses to publish when the tag does not match `package.json`,
-when the `RELEASE_SIGNING_KEY` secret is empty, or when the signature does not
-verify against the public key in `backend/release_key.go`. Users could not
-verify such a release, so the job never publishes it. The in-app updater
+The tag message becomes the release notes, minus a first line that is just
+the tag name. When earlier tags since the last release were never released
+themselves, their messages are added under "Also in this release", because
+their changes ship too. The notes end with a link comparing with the previous
+release.
+`.github/scripts/release-notes.sh` builds them; run it locally to preview:
+
+```sh
+gh api repos/t1nk333r/garage-webui-ng/releases --paginate \
+  -q '.[] | select((.draft or .prerelease) | not) | .tag_name' \
+  | .github/scripts/release-notes.sh vX.Y.Z
+```
+
+To fix a message before pushing the tag, retag with `git tag -a -f vX.Y.Z`.
+
+The release job refuses to publish when the tag is lightweight or its message
+lists no changes, so a release always says what changed. It also refuses when
+the tag does not match `package.json`, when the `RELEASE_SIGNING_KEY` secret is
+empty, or when the signature does not verify against the public key in
+`backend/release_key.go`. Users could not verify such a release, so the job
+never publishes it. The in-app updater
 and `contrib/garage-update` read the asset names
 (`garage-webui-ng-linux-{amd64,arm64}`, `SHA256SUMS`, `SHA256SUMS.sig`), so do
 not rename them.
