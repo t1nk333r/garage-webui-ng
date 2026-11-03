@@ -38,7 +38,7 @@ export default function SetupPage() {
       <form onSubmit={form.handleSubmit((v) => setup.mutate(v))}>
         <Card className="w-full max-w-md" bordered>
           <Card.Body>
-            <Card.Title tag="h2">Welcome</Card.Title>
+            <Card.Title tag="h2">Set up Garage WebUI-NG</Card.Title>
             <p className="text-base-content/60">
               Create the administrator account for this instance.
             </p>

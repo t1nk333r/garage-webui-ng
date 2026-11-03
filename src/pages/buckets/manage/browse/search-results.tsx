@@ -44,12 +44,12 @@ const SearchResults = ({ bucket, prefix, query, onNavigate }: Props) => {
     <div className="overflow-x-auto">
       {data.truncated && data.reason === "matches" && (
         <p className="text-xs text-warning px-2 pb-1">
-          Showing the first 200 matches — narrow the search to see the rest.
+          Showing the first 200 matches. Narrow the search to see the rest.
         </p>
       )}
       {data.truncated && data.reason === "scan" && (
         <p className="text-xs text-warning px-2 pb-1">
-          Stopped after scanning {data.scanned} objects — narrow the search or
+          Stopped after scanning {data.scanned} objects. Narrow the search or
           start from a deeper folder.
         </p>
       )}
@@ -63,7 +63,7 @@ const SearchResults = ({ bucket, prefix, query, onNavigate }: Props) => {
           <Table.Head>
             <span>Name</span>
             <span>Size</span>
-            <span>Last Modified</span>
+            <span>Last modified</span>
           </Table.Head>
 
           <Table.Body>

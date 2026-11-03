@@ -15,7 +15,7 @@ const PermissionsTab = () => {
 
   const denyKey = useDenyKey(bucket.id, {
     onSuccess: () => {
-      toast.success("Key removed!");
+      toast.success("Key access removed");
       refetch();
     },
     onError: handleError,
@@ -36,7 +36,7 @@ const PermissionsTab = () => {
   );
 
   const onRemove = (id: string) => {
-    if (window.confirm("Are you sure you want to remove this key?")) {
+    if (window.confirm("Remove this key's access to the bucket?")) {
       denyKey.mutate({
         keyId: id,
         permissions: { read: true, write: true, owner: true },
@@ -48,7 +48,7 @@ const PermissionsTab = () => {
     <div>
       <Card className="card-body">
         <div className="flex flex-row items-center gap-2">
-          <Card.Title className="flex-1 truncate">Access Keys</Card.Title>
+          <Card.Title className="flex-1 truncate">Access keys</Card.Title>
           <AllowKeyDialog currentKeys={currentKeyIds} />
         </div>
 

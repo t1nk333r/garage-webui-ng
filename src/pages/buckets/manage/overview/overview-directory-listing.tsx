@@ -185,14 +185,14 @@ const DirectoryListingSection = ({ status, websiteAccess }: Props) => {
 
       <p className="text-xs text-base-content/60 mt-1">
         Garage does not list folders by itself. This writes an{" "}
-        <code>{indexDocument}</code> into every folder that lists its files and
-        subfolders, and keeps it current after uploads and deletions.
+        <code>{indexDocument}</code> into every folder that lists its objects
+        and subfolders, and keeps it current after uploads and deletions.
       </p>
 
       {status.conflict ? (
         <div className="mt-2">
           <p className="text-xs text-warning">
-            This bucket has its own <code>{indexDocument}</code> — Garage
+            This bucket has its own <code>{indexDocument}</code>. Garage
             WebUI-NG will not replace or delete it.
           </p>
           {canWrite ? (
@@ -242,7 +242,7 @@ const DirectoryListingSection = ({ status, websiteAccess }: Props) => {
             <span>Updating…</span>
           ) : sync ? (
             <span>
-              {plural(sync.folders, "folder")} · {plural(sync.objects, "file")}{" "}
+              {plural(sync.folders, "folder")} · {plural(sync.objects, "object")}{" "}
               · updated {dayjs(sync.at).fromNow()}
             </span>
           ) : (
@@ -270,7 +270,8 @@ const DirectoryListingSection = ({ status, websiteAccess }: Props) => {
           ) : null}
           {sync.partial ? (
             <p className="text-warning">
-              Some folders are not updated yet; the next refresh continues.
+              Some folders are not updated yet. The next refresh continues
+              with them.
             </p>
           ) : null}
           {sync.userPages > 0 ? (
@@ -282,8 +283,8 @@ const DirectoryListingSection = ({ status, websiteAccess }: Props) => {
           ) : null}
           {sync.unlisted > 0 ? (
             <p className="text-base-content/60">
-              {plural(sync.unlisted, "object")} not listed: the name has an
-              empty, <code>.</code> or <code>..</code> path segment.
+              {plural(sync.unlisted, "object")} not listed because of an
+              empty, <code>.</code> or <code>..</code> segment in the name.
             </p>
           ) : null}
         </div>

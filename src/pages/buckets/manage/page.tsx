@@ -51,7 +51,7 @@ const ManageBucketPage = () => {
   return (
     <>
       <Page
-        title={name || "Manage Bucket"}
+        title={name || "Manage bucket"}
         prev="/buckets"
         icon={ArchiveIcon}
         subtitle={data ? <BucketSummary bucket={data} /> : undefined}
@@ -97,9 +97,8 @@ const ManageBucketPage = () => {
               className="mb-4 items-start text-sm"
             >
               <span>
-                This bucket has no global alias. Object browsing is unavailable
-                until one is added — the storage API addresses buckets by alias.
-                Add an alias in the Overview tab.
+                This bucket has no global alias, so its objects cannot be
+                browsed. Add an alias in the Overview tab.
               </span>
             </Alert>
           )}

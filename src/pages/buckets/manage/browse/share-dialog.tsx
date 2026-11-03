@@ -114,7 +114,7 @@ const ShareDialog = () => {
           <Alert className="mb-4 items-start text-sm">
             <FileWarningIcon className="mt-1 shrink-0" />
             <span>
-              No public URL — public access is off for this bucket.
+              Public read is off for this bucket, so there is no public URL.
               {config?.sharing ? " Private links above still work." : ""}
             </span>
           </Alert>
@@ -123,7 +123,7 @@ const ShareDialog = () => {
           <Alert className="mb-4 items-start text-sm">
             <FileWarningIcon className="mt-1 shrink-0" />
             <span>
-              Public read is enabled for this bucket, but no public URL can be
+              Public read is on for this bucket, but no public URL can be
               built yet. Set <code>S3_WEB_PUBLIC_URL</code> (or Garage's{" "}
               <code>[s3_web] root_domain</code>) and restart the app.
             </span>
@@ -157,7 +157,7 @@ const ShareDialog = () => {
             {publicAccess.url.startsWith("http://") &&
               window.location.protocol === "https:" && (
                 <p className="text-xs text-warning mt-1">
-                  This link is plain HTTP while the console is served over
+                  This link is plain HTTP while the web UI is served over
                   HTTPS. Set <code>S3_WEB_PUBLIC_URL</code> to your website
                   endpoint's public HTTPS address.
                 </p>

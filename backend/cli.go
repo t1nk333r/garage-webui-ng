@@ -167,7 +167,7 @@ func runCreateAdmin(username string) int {
 	user, err := st.CreateUser(context.Background(), username, password, store.RoleAdmin)
 	if err != nil {
 		if errors.Is(err, store.ErrUsernameTaken) {
-			fmt.Fprintf(os.Stderr, "user %q already exists - use -reset-password instead\n", username)
+			fmt.Fprintf(os.Stderr, "user %q already exists; use -reset-password to change its password\n", username)
 			return 1
 		}
 		fmt.Fprintln(os.Stderr, err)

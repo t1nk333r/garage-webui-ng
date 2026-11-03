@@ -42,7 +42,7 @@ const AssignNodeDialog = () => {
   const assignNode = useAssignNode({
     onSuccess() {
       form.reset();
-      toast.success("Node staged for assignment!");
+      toast.success("Node assignment staged");
       queryClient.invalidateQueries({ queryKey: ["status"] });
       queryClient.invalidateQueries({ queryKey: ["layout"] });
       assignNodeDialog.close();
@@ -127,10 +127,10 @@ const AssignNodeDialog = () => {
           onSubmit(e);
         }}
       >
-        <Modal.Header>Assign Node</Modal.Header>
+        <Modal.Header>Assign node</Modal.Header>
         <Modal.Body>
           <div className="form-control">
-            <label className="label label-text">Node ID:</label>
+            <label className="label label-text">Node ID</label>
             <Input
               placeholder="..."
               className="w-full"
@@ -190,7 +190,7 @@ const AssignNodeDialog = () => {
                 name="capacityUnit"
                 render={(field) => (
                   <Select {...(field as any)}>
-                    <option value="">Select Unit</option>
+                    <option value="">Select unit</option>
 
                     {capacityUnits.map((unit) => (
                       <option key={unit} value={unit}>

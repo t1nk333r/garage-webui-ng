@@ -42,7 +42,7 @@ const NodesList = ({ nodes }: NodeListProps) => {
 
   const unassignNode = useUnassignNode({
     onSuccess: () => {
-      toast.success("Node unassigned!");
+      toast.success("Node removal staged");
       refetch();
     },
     onError: handleError,
@@ -50,7 +50,7 @@ const NodesList = ({ nodes }: NodeListProps) => {
 
   const revertChanges = useRevertChanges({
     onSuccess: () => {
-      toast.success("Layout reverted!");
+      toast.success("Staged changes reverted");
       refetch();
     },
     onError: handleError,
@@ -58,7 +58,7 @@ const NodesList = ({ nodes }: NodeListProps) => {
 
   const applyChanges = useApplyChanges({
     onSuccess: () => {
-      toast.success("Layout applied!");
+      toast.success("Layout applied");
       setTimeout(refetch, 100);
       queryClient.invalidateQueries({ queryKey: ["status"] });
     },
@@ -104,14 +104,14 @@ const NodesList = ({ nodes }: NodeListProps) => {
   };
 
   const onUnassign = (id: string) => {
-    if (window.confirm("Are you sure you want to unassign this node?")) {
+    if (window.confirm("Remove this node from the layout?")) {
       unassignNode.mutate(id);
     }
   };
 
   const onRevert = () => {
     if (
-      window.confirm("Are you sure you want to revert any changes made?") &&
+      window.confirm("Revert all staged layout changes?") &&
       data?.version != null
     ) {
       revertChanges.mutate(data?.version + 1);
@@ -120,7 +120,7 @@ const NodesList = ({ nodes }: NodeListProps) => {
 
   const onApply = () => {
     if (
-      window.confirm("Are you sure you want to apply your layout changes?") &&
+      window.confirm("Apply the staged layout changes?") &&
       data?.version != null
     ) {
       applyChanges.mutate(data?.version + 1);
@@ -165,8 +165,8 @@ const NodesList = ({ nodes }: NodeListProps) => {
 
       {hasStagedChanges && (
         <Alert icon={<Info />}>
-          There are staged layout changes that need to be applied. Press Apply
-          to apply them, or Revert to discard them.
+          The layout has staged changes.
+          {canWrite ? " Apply them, or revert to discard them." : null}
         </Alert>
       )}
 

@@ -35,7 +35,7 @@ const Actions = ({ prefix }: Props) => {
       }
 
       if (files.length > 20) {
-        toast.error("You can only upload up to 20 files at a time");
+        toast.error("You can upload at most 20 files at a time");
         return;
       }
 
@@ -59,7 +59,7 @@ const Actions = ({ prefix }: Props) => {
       <Button
         icon={UploadIcon}
         color="ghost"
-        title="Upload File"
+        title="Upload files"
         onClick={onUploadFile}
       />
       {/* <Button icon={EllipsisVertical} color="ghost" /> */}
@@ -87,7 +87,7 @@ const CreateFolderAction = ({ prefix }: CreateFolderActionProps) => {
 
   const createFolder = usePutObject(bucketName, {
     onSuccess: () => {
-      toast.success("Folder created!");
+      toast.success("Folder created");
       queryClient.invalidateQueries({ queryKey: ["browse", bucketName] });
       onClose();
       form.reset();
@@ -105,11 +105,11 @@ const CreateFolderAction = ({ prefix }: CreateFolderActionProps) => {
         icon={FolderPlus}
         color="ghost"
         onClick={onOpen}
-        title="Create Folder"
+        title="Create folder"
       />
 
       <Modal open={isOpen}>
-        <Modal.Header>Create Folder</Modal.Header>
+        <Modal.Header>Create folder</Modal.Header>
 
         <Modal.Body>
           <form onSubmit={onSubmit}>

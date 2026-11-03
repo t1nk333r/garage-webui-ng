@@ -34,10 +34,10 @@ const AllowKeyDialog = ({ currentKeys }: Props) => {
   const queryClient = useQueryClient();
 
   const allowKey = useAllowKey(bucket.id, {
-    onSuccess: () => {
+    onSuccess: (_data, allowed) => {
       form.reset();
       onClose();
-      toast.success("Key allowed!");
+      toast.success(allowed.length === 1 ? "Key allowed" : "Keys allowed");
       queryClient.invalidateQueries({ queryKey: ["bucket", bucket.id] });
     },
     onError: handleError,
@@ -123,13 +123,13 @@ const AllowKeyDialog = ({ currentKeys }: Props) => {
   return (
     <>
       <Button icon={Plus} color="primary" onClick={onOpen}>
-        Allow Key
+        Allow key
       </Button>
 
       <Modal ref={dialogRef} backdrop open={isOpen} className="max-w-2xl">
-        <Modal.Header className="mb-1">Allow Key</Modal.Header>
+        <Modal.Header className="mb-1">Allow key</Modal.Header>
         <Modal.Body>
-          <p>Enter the key you want to allow access to.</p>
+          <p>Select the keys that get access to this bucket, and their permissions.</p>
 
           <div className="overflow-x-auto mt-4">
             <Table>
@@ -142,7 +142,7 @@ const AllowKeyDialog = ({ currentKeys }: Props) => {
                   />
                   Key
                 </label>
-                <label>Local Aliases</label>
+                <label>Local aliases</label>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <Checkbox
                     color="primary"

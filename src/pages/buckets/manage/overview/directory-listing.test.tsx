@@ -186,7 +186,7 @@ describe("DirectoryListingSection", () => {
       })
     );
 
-    expect(screen.getByText(/3 folders · 12 files/)).toBeInTheDocument();
+    expect(screen.getByText(/3 folders · 12 objects/)).toBeInTheDocument();
     expect(screen.getByText(/1 folder has its own/i)).toBeInTheDocument();
 
     // A refresh sends no theme, so the pages keep theirs.

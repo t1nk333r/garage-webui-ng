@@ -79,8 +79,8 @@ const BrowseTab = () => {
     return (
       <div className="p-4 min-h-[200px] flex flex-col items-center justify-center">
         <p className="text-center max-w-sm">
-          You need to add a key with read & write access to your bucket to be
-          able to browse it.
+          Browsing needs a key with read and write access to this bucket.
+          Allow one in the Permissions tab.
         </p>
       </div>
     );

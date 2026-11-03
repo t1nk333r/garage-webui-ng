@@ -22,14 +22,14 @@ const AliasesSection = () => {
   const queryClient = useQueryClient();
   const removeAlias = useRemoveAlias(data?.id, {
     onSuccess: () => {
-      toast.success("Alias removed!");
+      toast.success("Alias removed");
       queryClient.invalidateQueries({ queryKey: ["bucket", data?.id] });
     },
     onError: handleError,
   });
 
   const onRemoveAlias = (alias: string) => {
-    if (window.confirm("Are you sure you want to remove this alias?")) {
+    if (window.confirm("Remove this alias?")) {
       removeAlias.mutate(alias);
     }
   };
@@ -71,7 +71,7 @@ const AddAliasDialog = ({ id }: { id?: string }) => {
     onSuccess: () => {
       form.reset();
       onClose();
-      toast.success("Alias added!");
+      toast.success("Alias added");
       queryClient.invalidateQueries({ queryKey: ["bucket", id] });
     },
     onError: handleError,
@@ -84,11 +84,11 @@ const AddAliasDialog = ({ id }: { id?: string }) => {
   return (
     <>
       <Button size="sm" onClick={onOpen} icon={Plus}>
-        Add Alias
+        Add alias
       </Button>
 
       <Modal ref={dialogRef} open={isOpen}>
-        <Modal.Header>Add Alias</Modal.Header>
+        <Modal.Header>Add alias</Modal.Header>
 
         <Modal.Body>
           <form onSubmit={onSubmit}>

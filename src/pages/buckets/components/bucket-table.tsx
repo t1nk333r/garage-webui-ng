@@ -171,7 +171,7 @@ const BucketTable = ({ items, isLoading, error, onRetry, isFiltered }: Props) =>
                   <td className="hidden whitespace-nowrap lg:table-cell">
                     {bucket.created
                       ? dayjs(bucket.created).format("YYYY-MM-DD")
-                      : "—"}
+                      : "Unknown"}
                   </td>
                   <td onClick={stop}>
                     {/* w-max: daisyUI's .btn wraps its content, which would

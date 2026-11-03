@@ -68,7 +68,7 @@ const QuotaSection = () => {
           <InputField
             form={form}
             name="maxObjects"
-            title="Max Objects"
+            title="Max objects"
             type="number"
             disabled={!canWrite}
           />
@@ -76,7 +76,7 @@ const QuotaSection = () => {
           <InputField
             form={form}
             name="maxSize"
-            title="Max Size (GB)"
+            title="Max size (GB)"
             type="number"
             disabled={!canWrite}
           />

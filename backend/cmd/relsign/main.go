@@ -55,16 +55,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 func usage(w io.Writer) {
 	fmt.Fprintln(w, `usage:
   relsign keygen
-      Generates an ed25519 keypair. Prints only the private key (hex) to
-      stdout, so it can be piped straight into a secret store, and the
-      public key (hex, labelled) to stderr.
+      Generates an ed25519 keypair. Prints the private key (hex) alone on
+      stdout, so you can pipe it into a secret store, and the labelled
+      public key (hex) on stderr.
 
   relsign sign -key-env <ENV_VAR> -in <file> -out <sig-file>
-      Signs the exact bytes of <file> using the hex private key read from
-      the named environment variable, and writes the hex signature.
+      Signs the exact bytes of <file> with the hex private key held in the
+      environment variable <ENV_VAR>, and writes the hex signature to
+      <sig-file>.
 
   relsign verify -pub <hex> -in <file> -sig <sig-file>
-      Verifies <sig-file> against <file> for the given hex public key.
+      Checks <sig-file> against <file> with the hex public key <hex>.
       Exits non-zero on any failure.`)
 }
 
@@ -94,8 +95,8 @@ func runKeygen(args []string, stdout, stderr io.Writer) error {
 	}
 
 	fmt.Fprintln(stdout, hex.EncodeToString(priv))
-	fmt.Fprintln(stderr, "PUBLIC KEY (hex, safe to share — paste into backend/release_key.go):", hex.EncodeToString(pub))
-	fmt.Fprintln(stderr, "NOTE: stdout carried only the private key (hex, secret, never commit) — store it verbatim, with no label or trailing text, as the GitHub Actions repository secret RELEASE_SIGNING_KEY.")
+	fmt.Fprintln(stderr, "PUBLIC KEY (hex, safe to share; paste it into backend/release_key.go):", hex.EncodeToString(pub))
+	fmt.Fprintln(stderr, "NOTE: stdout carried only the private key (hex, secret, never commit it). Store it verbatim, with no label or trailing text, as the GitHub Actions repository secret RELEASE_SIGNING_KEY.")
 	return nil
 }
 

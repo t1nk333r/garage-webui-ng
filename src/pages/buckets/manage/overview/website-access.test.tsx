@@ -80,7 +80,7 @@ describe("WebsiteAccessSection", () => {
     await user.click(screen.getByRole("checkbox"));
 
     expect(
-      screen.getByText(/enable public access\?/i)
+      screen.getByText(/enable public read\?/i)
     ).toBeInTheDocument();
     expect(mockUpdateMutation.mutate).not.toHaveBeenCalled();
   });
@@ -91,7 +91,7 @@ describe("WebsiteAccessSection", () => {
 
     await user.click(screen.getByRole("checkbox"));
     await user.click(
-      screen.getByRole("button", { name: /enable public access/i })
+      screen.getByRole("button", { name: /enable public read/i })
     );
 
     expect(mockUpdateMutation.mutate).toHaveBeenCalledTimes(1);

@@ -133,7 +133,7 @@ const ObjectList = ({
     <div className="overflow-x-auto min-h-[400px]">
       {isPartialSort && (
         <p className="text-xs text-base-content/60 px-2 pb-1">
-          Sorted across the objects loaded so far — load more to sort the
+          Sorted across the objects loaded so far. Load more to sort the
           rest.
         </p>
       )}
@@ -154,7 +154,7 @@ const ObjectList = ({
             Size
           </SortableHeader>
           <SortableHeader column="lastModified" sort={sort} onSort={toggleSort}>
-            Last Modified
+            Last modified
           </SortableHeader>
           {/* The actions column. `Table.Head` renders one <th> per child, so
               this must exist or the table declares 4 columns while every row

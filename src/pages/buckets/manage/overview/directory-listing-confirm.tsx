@@ -32,8 +32,8 @@ const DirectoryListingConfirm = ({
         <p>
           Anyone who can reach the website for{" "}
           <span className="font-medium">{bucketName}</span> will see the name,
-          size and date of every file in it, not only files whose address they
-          already know.
+          size and date of every object in it, not only objects whose name
+          they already know.
         </p>
         <p className="mt-2">
           An <code>{indexDocument}</code> is written into every folder and kept

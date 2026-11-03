@@ -42,7 +42,9 @@ const AboutTab = () => {
     if (!update?.latest) return;
 
     const confirmed = window.confirm(
-      `Install version ${update.latest}? A restart is required to apply it — the running process keeps serving the current version until then.`
+      restartAfterInstall
+        ? `Install version ${update.latest} and restart? WebUI-NG is unavailable until the service manager starts it again.`
+        : `Install version ${update.latest}? It takes effect after the next restart. Until then, the running process keeps serving the current version.`
     );
     if (!confirmed) return;
 
@@ -96,33 +98,27 @@ const AboutTab = () => {
         </div>
 
         {update?.updateAvailable && update.latest ? (
-          <p className="text-sm mt-2">
-            Update available: {update.latest}
+          <p className="text-sm mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>Update available: {update.latest}</span>
             {update.url ? (
-              <>
-                {" — "}
-                <a
-                  href={update.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="link"
-                >
-                  view release
-                </a>
-              </>
+              <a
+                href={update.url}
+                target="_blank"
+                rel="noreferrer"
+                className="link"
+              >
+                View release
+              </a>
             ) : null}
             {update.canSelfUpdate ? (
-              <>
-                {" — "}
-                <Button
-                  size="sm"
-                  color="primary"
-                  disabled={applyUpdate.isPending}
-                  onClick={onUpdateNow}
-                >
-                  {applyUpdate.isPending ? "Updating…" : "Update now"}
-                </Button>
-              </>
+              <Button
+                size="sm"
+                color="primary"
+                disabled={applyUpdate.isPending}
+                onClick={onUpdateNow}
+              >
+                {applyUpdate.isPending ? "Updating…" : "Update now"}
+              </Button>
             ) : null}
           </p>
         ) : null}
@@ -136,18 +132,28 @@ const AboutTab = () => {
               onChange={(e) => setRestartAfterInstall(e.target.checked)}
             />
             <p className="text-xs text-base-content/60 mt-1">
-              The service manager must be configured to restart the service
-              automatically, or the console will stay down until it is
-              restarted manually.
+              With this checked, the process exits once the update is
+              installed. If the service manager does not restart it
+              automatically, WebUI-NG stays down until you start it again.
             </p>
           </div>
         ) : null}
 
         {applyResult ? (
           <p className="text-sm mt-2">
-            Update to {applyResult.version} staged. A restart is required to
-            apply it — the running process is still serving{" "}
-            {config?.version ?? "the previous version"} until then.
+            {applyResult.restarting ? (
+              <>
+                Version {applyResult.version} is installed. WebUI-NG is
+                shutting down so the service manager can restart it. Reload
+                this page once it is back.
+              </>
+            ) : (
+              <>
+                Version {applyResult.version} is installed and takes effect
+                after a restart. Until then, the running process serves{" "}
+                {config?.version ?? "the previous version"}.
+              </>
+            )}
           </p>
         ) : null}
 
@@ -183,8 +189,8 @@ const AboutTab = () => {
           </div>
         ) : update?.deployment === "managed" ? (
           <p className="text-sm text-base-content/60 mt-2">
-            This deployment is updated from outside the app — replace the
-            container image or the binary and restart the service.
+            This deployment is updated from outside the app. Replace the
+            container image or the binary, then restart the service.
           </p>
         ) : null}
 

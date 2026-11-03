@@ -30,7 +30,7 @@ const CreateBucketDialog = () => {
     onSuccess: () => {
       onClose();
       queryClient.invalidateQueries({ queryKey: ["buckets"] });
-      toast.success("Bucket created!");
+      toast.success("Bucket created");
     },
     onError: handleError,
   });
@@ -46,16 +46,16 @@ const CreateBucketDialog = () => {
   return (
     <>
       <Button icon={Plus} color="primary" onClick={onOpen}>
-        Create Bucket
+        Create bucket
       </Button>
 
       <Modal ref={dialogRef} backdrop open={isOpen}>
-        <Modal.Header className="mb-1">Create New Bucket</Modal.Header>
+        <Modal.Header className="mb-1">Create bucket</Modal.Header>
         <Modal.Body>
-          <p>Enter the details of the bucket you wish to create.</p>
+          <p>Enter a name for the new bucket.</p>
 
           <form onSubmit={onSubmit}>
-            <InputField form={form} name="globalAlias" title="Bucket Name" />
+            <InputField form={form} name="globalAlias" title="Bucket name" />
           </form>
         </Modal.Body>
 

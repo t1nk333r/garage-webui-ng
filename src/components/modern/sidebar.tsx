@@ -38,7 +38,7 @@ const navGroups: NavGroup[] = [
     label: "Storage",
     items: [
       { title: "Buckets", path: "/buckets", icon: ArchiveIcon },
-      { title: "Access Keys", path: "/keys", icon: KeySquare },
+      { title: "Access keys", path: "/keys", icon: KeySquare },
     ],
   },
   {

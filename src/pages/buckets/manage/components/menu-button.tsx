@@ -13,14 +13,14 @@ const MenuButton = () => {
 
   const removeBucket = useRemoveBucket({
     onSuccess: () => {
-      toast.success("Bucket removed!");
+      toast.success("Bucket removed");
       navigate("/buckets", { replace: true });
     },
     onError: handleError,
   });
 
   const onRemove = () => {
-    if (window.confirm("Are you sure you want to remove this bucket?")) {
+    if (window.confirm("Remove this bucket?")) {
       removeBucket.mutate(id!);
     }
   };

@@ -194,7 +194,7 @@ const UploadCard = () => {
             size="sm"
             color="ghost"
             shape="circle"
-            aria-label="Clear completed uploads"
+            aria-label="Clear finished uploads"
             onClick={(e) => {
               e.stopPropagation();
               uploadQueue.clearFinished();

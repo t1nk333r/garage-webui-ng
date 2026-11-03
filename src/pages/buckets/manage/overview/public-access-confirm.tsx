@@ -21,7 +21,7 @@ const PublicAccessConfirm = ({
 }: Props) => {
   return (
     <Modal open={isOpen}>
-      <Modal.Header>Enable public access?</Modal.Header>
+      <Modal.Header>Enable public read?</Modal.Header>
       <Modal.Body>
         <p>
           Every object in <span className="font-medium">{bucketName}</span>{" "}
@@ -35,7 +35,7 @@ const PublicAccessConfirm = ({
           Cancel
         </Button>
         <Button color="warning" onClick={onConfirm}>
-          Enable public access
+          Enable public read
         </Button>
       </Modal.Actions>
     </Modal>

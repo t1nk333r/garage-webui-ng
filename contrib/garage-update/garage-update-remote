@@ -29,14 +29,14 @@ usage() {
 Usage: $PROG [command] [options]
 
   status | core [VERSION] | gui [VERSION] | all
-                      run garage-update on the target with these arguments
-                      (options: garage-update --help)
+                      run garage-update on the target with these arguments;
+                      garage-update --help lists the options
   gui --build [REF]   build WebUI-NG from this checkout at REF (default HEAD,
                       committed changes only) and install that build
   install             only install or refresh garage-update on the target
 
 Every command first makes sure the target runs this checkout's garage-update.
-Target settings: $CONF
+The target is set in $CONF.
 EOF
 }
 
