@@ -7,7 +7,8 @@
 #     change does not touch is skipped;
 #   - main: the multi-arch image, tagged main, latest and sha-<short>;
 #   - a v* tag: every test, then the image tagged X.Y.Z, X.Y and X, plus a
-#     GitHub release with the signed binaries;
+#     GitHub release with the signed binaries, whose notes come from the
+#     annotated tag message (.github/scripts/release-notes.sh);
 #   - nightly, and on a manual run: every test.
 #
 # Release assets and their names are a contract with `relsign verify` and the
@@ -226,7 +227,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The notes walk back through earlier tags, so they need the history.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: Tag matches package.json
         run: |
           TAG="${GITHUB_REF_NAME#v}"
@@ -235,6 +239,20 @@ jobs:
             echo "::error::tag v$TAG but package.json says $PKG"
             exit 1
           fi
+      # A release must say what changed. The notes are the tag's message plus
+      # those of tags since the last release that were never released; this
+      # fails, before anything is built, when the tag lists no changes. The
+      # fetch restores annotated tag objects, which the checkout may have
+      # replaced with lightweight ones.
+      - name: Release notes from the tag message
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch --force --tags --quiet origin
+          gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            -q '.[] | select((.draft or .prerelease) | not) | .tag_name' > "$RUNNER_TEMP/released-tags"
+          .github/scripts/release-notes.sh "$GITHUB_REF_NAME" < "$RUNNER_TEMP/released-tags" > "$RUNNER_TEMP/release-notes.md"
+          cat "$RUNNER_TEMP/release-notes.md"
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
@@ -296,4 +314,4 @@ jobs:
             release-artifacts/SHA256SUMS
             release-artifacts/SHA256SUMS.sig
           fail_on_unmatched_files: true
-          generate_release_notes: true
+          body_path: ${{ runner.temp }}/release-notes.md
