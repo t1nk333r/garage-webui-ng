@@ -25,17 +25,17 @@ RUN pnpm run build
 # ──────────────────────────────────────────────────────────────────────────
 # Stage 2 — build the Go backend (embeds the built UI via -tags=prod)
 # ──────────────────────────────────────────────────────────────────────────
-# Must be >= the `go` directive in backend/go.mod (1.25.0, raised by
-# modernc.org/sqlite), otherwise the build stalls on a toolchain download.
+# Must be >= the `go` directive in backend/go.mod (1.26.0, raised by
+# golang.org/x/crypto), otherwise the build stalls on a toolchain download.
 #
 # Pinned to an EXACT patch on purpose. A floating `golang:1.27-alpine` resolves
 # to whatever 1.27.x the registry serves that day, which is how a stdlib patch
-# with open advisories ends up in a release image. 1.27.3 is clean under
+# with open advisories ends up in a release image. 1.27.4 is clean under
 # govulncheck (blocking in CI); 1.25.13 had twelve standard-library advisories
 # whose fixes only reached 1.26.9+. Bumping this is a deliberate chore: keep it
 # in lockstep with GO_VERSION in .github/workflows/ci.yml, which fails when the
 # two differ.
-FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS backend
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine AS backend
 WORKDIR /app
 
 # The release version, injected into the binary below. Passed by CI as the git

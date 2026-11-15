@@ -40,7 +40,7 @@ env:
   # Exact patches, in lockstep with the Dockerfile's builder stages. The
   # backend job fails if the Go pins drift apart, because govulncheck judges
   # the standard library of the toolchain it runs under.
-  GO_VERSION: "1.27.3"
+  GO_VERSION: "1.27.4"
   NODE_VERSION: "20"
   IMAGE: ghcr.io/${{ github.repository_owner }}/garage-webui-ng
 
