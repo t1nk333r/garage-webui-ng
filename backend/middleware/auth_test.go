@@ -102,6 +102,48 @@ func TestIsViewerAllowed(t *testing.T) {
 			want:   false,
 		},
 		{
+			name:   "Admin API v1 key read with showSecretKey is denied",
+			method: http.MethodGet,
+			target: "/v1/key?id=x&showSecretKey=true",
+			want:   false,
+		},
+		{
+			name:   "any Admin API v1 read is denied",
+			method: http.MethodGet,
+			target: "/v1/bucket?id=x",
+			want:   false,
+		},
+		{
+			name:   "any Admin API v0 read is denied",
+			method: http.MethodGet,
+			target: "/v0/key?id=x",
+			want:   false,
+		},
+		{
+			name:   "v1 hidden behind a dot segment is denied",
+			method: http.MethodGet,
+			target: "/v2/../v1/key?id=x",
+			want:   false,
+		},
+		{
+			name:   "repeated showSecretKey (false then true) is denied",
+			method: http.MethodGet,
+			target: "/v2/GetKeyInfo?id=x&showSecretKey=false&showSecretKey=true",
+			want:   false,
+		},
+		{
+			name:   "showSecretKey with another casing or value is denied",
+			method: http.MethodGet,
+			target: "/v2/GetKeyInfo?id=x&ShowSecretKey=1",
+			want:   false,
+		},
+		{
+			name:   "percent-encoded showSecretKey is denied",
+			method: http.MethodGet,
+			target: "/v2/GetKeyInfo?id=x&show%53ecretKey=true",
+			want:   false,
+		},
+		{
 			name:   "GetKeyInfo without showSecretKey is allowed",
 			method: http.MethodGet,
 			target: "/v2/GetKeyInfo?id=x",
