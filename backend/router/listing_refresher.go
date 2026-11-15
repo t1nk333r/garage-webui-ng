@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -327,7 +328,7 @@ func (lr *listingRefresher) sweep(ctx context.Context) {
 		go func(i int, id string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			body, err := utils.Garage.Fetch("/v2/GetBucketInfo?id="+id, &utils.FetchOptions{})
+			body, err := utils.Garage.Fetch("/v2/GetBucketInfo?id="+url.QueryEscape(id), &utils.FetchOptions{})
 			if err != nil {
 				return
 			}

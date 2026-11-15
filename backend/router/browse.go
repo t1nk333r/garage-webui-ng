@@ -1197,7 +1197,7 @@ func getBucketCredentials(bucket string) (aws.CredentialsProvider, error) {
 		return cacheData.(aws.CredentialsProvider), nil
 	}
 
-	body, err := utils.Garage.Fetch("/v2/GetBucketInfo?globalAlias="+bucket, &utils.FetchOptions{})
+	body, err := utils.Garage.Fetch("/v2/GetBucketInfo?globalAlias="+url.QueryEscape(bucket), &utils.FetchOptions{})
 	if err != nil {
 		return nil, err
 	}
