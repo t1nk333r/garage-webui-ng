@@ -153,9 +153,12 @@ rules below do not allow is denied.
 - Everything under `/api/admin/` is denied, whatever the method. That includes
   reads, because the list of accounts, their roles and their sign-in times are
   not for viewers to see.
-- Every other `GET` is allowed, with one exception. `GET /api/v2/GetKeyInfo`
-  with `showSecretKey=true` is denied, so a viewer can never reveal a secret
-  access key.
+- Every other `GET` is allowed, with two exceptions, so a viewer can never
+  reveal a secret access key. Any `GET` carrying a `showSecretKey` parameter
+  is denied, whatever its path, value, casing or repetition. And Garage's
+  older Admin API versions, `/api/v0/` and `/api/v1/`, are denied outright:
+  the UI uses only v2, and the older versions have their own ways to read a
+  secret.
 - Exactly three writes are allowed, each as an exact path match, not a prefix.
   `POST /api/auth/logout` and `POST /api/auth/change-password` act only on the
   caller's own session and account. `POST /api/browse/download-token` mints a

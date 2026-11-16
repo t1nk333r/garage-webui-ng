@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-Frontend lives at the repo root (package manager: **pnpm**); backend under `backend/` (**Go 1.25+** — the `go` directive in `backend/go.mod` is `1.25.0`, raised by `modernc.org/sqlite`; the Docker builder pins an **exact** patch,
+Frontend lives at the repo root (package manager: **pnpm**); backend under `backend/` (**Go 1.26+** — the `go` directive in `backend/go.mod` is `1.26.0`, raised by `golang.org/x/crypto`; the Docker builder pins an **exact** patch,
 currently `1.27.4` / `golang:1.27.4-alpine`, in two places — the
 `Dockerfile` and `GO_VERSION` in `.github/workflows/ci.yml` — which must stay in
 lockstep (the CI backend job fails when they differ), since `govulncheck` in CI

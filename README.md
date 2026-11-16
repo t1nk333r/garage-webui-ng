@@ -422,7 +422,7 @@ Open an issue to discuss a large change before starting it. Before opening a pul
 
 ## Development
 
-You need Node 20 or later with `pnpm` (`corepack enable` provides it) and Go 1.25 or later. The `go` directive in `backend/go.mod` is `1.25.0` because `modernc.org/sqlite` requires it.
+You need Node 20 or later with `pnpm` (`corepack enable` provides it) and Go 1.26 or later. The `go` directive in `backend/go.mod` is `1.26.0` because `golang.org/x/crypto` requires it.
 
 ```bash
 pnpm install
