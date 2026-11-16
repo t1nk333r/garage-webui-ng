@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -34,9 +36,18 @@ func isViewerAllowed(r *http.Request) bool {
 	}
 
 	if r.Method == http.MethodGet {
-		// one carve-out: never let a viewer reveal a secret access key
-		if strings.HasPrefix(r.URL.Path, "/v2/GetKeyInfo") &&
-			r.URL.Query().Get("showSecretKey") == "true" {
+		// The UI only speaks Admin API v2. Garage still serves v0 and v1, and
+		// those have their own secret-revealing reads (GET /v1/key?showSecretKey=
+		// true), so a viewer gets no older API version at all.
+		if p := path.Clean("/" + r.URL.Path); p == "/v0" || p == "/v1" ||
+			strings.HasPrefix(p, "/v0/") || strings.HasPrefix(p, "/v1/") {
+			return false
+		}
+		// one carve-out: never let a viewer reveal a secret access key. Any
+		// showSecretKey parameter is refused, whatever the path, value, case or
+		// repetition: Garage and net/url need not agree on which of two
+		// repeated parameters wins, nor on what counts as true.
+		if hasSecretKeyParam(r.URL.RawQuery) {
 			return false
 		}
 		return true
@@ -52,6 +63,23 @@ func isViewerAllowed(r *http.Request) bool {
 		return r.URL.Path == "/auth/logout" ||
 			r.URL.Path == "/auth/change-password" ||
 			r.URL.Path == "/browse/download-token"
+	}
+	return false
+}
+
+// hasSecretKeyParam reports whether a query string carries a showSecretKey
+// (or show_secret_key) parameter in any spelling. It scans the raw string so a
+// malformed query that url.ParseQuery would reject is still caught.
+func hasSecretKeyParam(rawQuery string) bool {
+	for _, part := range strings.FieldsFunc(rawQuery, func(c rune) bool { return c == '&' || c == ';' }) {
+		key, _, _ := strings.Cut(part, "=")
+		if k, err := url.QueryUnescape(key); err == nil {
+			key = k
+		}
+		switch strings.ToLower(strings.ReplaceAll(key, "_", "")) {
+		case "showsecretkey":
+			return true
+		}
 	}
 	return false
 }

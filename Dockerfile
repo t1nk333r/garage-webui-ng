@@ -25,8 +25,8 @@ RUN pnpm run build
 # ──────────────────────────────────────────────────────────────────────────
 # Stage 2 — build the Go backend (embeds the built UI via -tags=prod)
 # ──────────────────────────────────────────────────────────────────────────
-# Must be >= the `go` directive in backend/go.mod (1.25.0, raised by
-# modernc.org/sqlite), otherwise the build stalls on a toolchain download.
+# Must be >= the `go` directive in backend/go.mod (1.26.0, raised by
+# golang.org/x/crypto), otherwise the build stalls on a toolchain download.
 #
 # Pinned to an EXACT patch on purpose. A floating `golang:1.27-alpine` resolves
 # to whatever 1.27.x the registry serves that day, which is how a stdlib patch
