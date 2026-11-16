@@ -16,9 +16,11 @@ import (
 
 // isViewerAllowed is the entire security boundary for the read-only viewer
 // role: fail-closed by construction. Nothing under /admin/ is reachable at all;
-// otherwise every GET is allowed except the one carve-out that reveals a secret
-// (GetKeyInfo?showSecretKey=true), and every non-GET is denied except the two
-// that only affect the caller's own account. Any new write served via GET, or
+// otherwise every GET is allowed except the carve-outs that could reveal a
+// secret (any showSecretKey parameter, and Admin API v0/v1 entirely), and
+// every non-GET is denied except the three exact paths listed below. The path
+// judged here is the one ProxyHandler forwards, unchanged; keep it that way.
+// Any new write served via GET, or
 // any new secret-revealing GET, must be added here explicitly — do not loosen
 // this to "allow all GET".
 //

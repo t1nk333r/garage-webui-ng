@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"strings"
 )
 
 func ProxyHandler(w http.ResponseWriter, r *http.Request) {
@@ -18,8 +17,10 @@ func ProxyHandler(w http.ResponseWriter, r *http.Request) {
 
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
+			// main.go has already stripped /api, so the path forwarded is the
+			// one AuthMiddleware judged. Stripping again here would let a
+			// viewer reach /v1/... by asking for /api/v1/...
 			r.SetURL(target)
-			r.Out.URL.Path = strings.TrimPrefix(r.In.URL.Path, "/api")
 			r.Out.Header.Set("Authorization", fmt.Sprintf("Bearer %s", utils.Garage.GetAdminKey()))
 		},
 	}
